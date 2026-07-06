@@ -35,6 +35,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -333,6 +334,25 @@ export function writeAgentDef(ts: TestSession, name: string, content: string): v
   writeFileSync(join(ts.configDir, "agents", `${name}.md`), content, "utf8");
 }
 
+/**
+ * Mark a folder trusted in the ISOLATED config dir's trust.json — child pi
+ * processes whose cwd has a .pi/ dir otherwise block on the interactive
+ * "Trust project folder?" dialog (live-found via a devenv-checkout spawn). Both the
+ * logical and physical paths are recorded (macOS /var → /private/var).
+ */
+export function trustFolder(ts: TestSession, dir: string): void {
+  const trustFile = join(ts.configDir, "trust.json");
+  let trust: Record<string, boolean> = {};
+  try {
+    trust = JSON.parse(readFileSync(trustFile, "utf8"));
+  } catch {}
+  trust[dir] = true;
+  try {
+    trust[realpathSync(dir)] = true;
+  } catch {}
+  writeFileSync(trustFile, JSON.stringify(trust, null, 2), "utf8");
+}
+
 // ── bootstrap ───────────────────────────────────────────────────────────────
 
 let activeTeardowns: Array<() => void> = [];
@@ -371,7 +391,10 @@ export async function createTestSession(): Promise<TestSession> {
   }
 
   // Temp dirs: scratch + isolated pi config with auth + SYSTEM.md + agent defs.
-  const tmpDir = mkdtempSync(join(tmpdir(), "pi-herder-itest-"));
+  // Physical path (macOS tmpdir is a /var → /private/var symlink): direnv
+  // keys its allow records by the PHYSICAL .envrc path, so `direnv exec` with
+  // a logical /var cwd reports "blocked" even after `direnv allow` (live-found).
+  const tmpDir = realpathSync(mkdtempSync(join(tmpdir(), "pi-herder-itest-")));
   const configDir = join(tmpDir, "pi-config");
   mkdirSync(join(configDir, "agents"), { recursive: true });
   copyFileSync(join(REAL_AGENT_DIR, "auth.json"), join(configDir, "auth.json"));
@@ -388,6 +411,8 @@ export async function createTestSession(): Promise<TestSession> {
   writeFileSync(join(configDir, "settings.json"), JSON.stringify({ transport }), "utf8");
   writeFileSync(join(configDir, "agents", "test-echo.md"), TEST_ECHO_DEF, "utf8");
   writeFileSync(join(configDir, "agents", "test-ping.md"), TEST_PING_DEF, "utf8");
+  // Pre-trust the scratch dir so no child ever blocks on the trust dialog.
+  writeFileSync(join(configDir, "trust.json"), JSON.stringify({ [tmpDir]: true }), "utf8");
 
   // Dedicated tmux session hosting the herdr client (needs a TTY).
   tmux(["new-session", "-d", "-s", tmuxSession, "-x", "220", "-y", "100"]);
