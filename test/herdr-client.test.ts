@@ -200,13 +200,25 @@ describe("HerdrClient", () => {
     assert.deepEqual(calls[0].args, ["pane", "close", "w1:p3"]);
   });
 
-  it("paneSendKeys sends keys", async () => {
-    const { exec, calls } = fakeExec([
-      { stdout: JSON.stringify({ id: "x", result: { type: "keys_sent" } }) },
-    ]);
+  it("paneSendKeys sends keys — success prints NOTHING (verified live, herdr 0.7.1)", async () => {
+    const { exec, calls } = fakeExec([{ stdout: "" }]);
     const client = createHerdrClient({ exec });
     await client.paneSendKeys("w1:p3", ["escape"]);
     assert.deepEqual(calls[0].args, ["pane", "send-keys", "w1:p3", "escape"]);
+  });
+
+  it("paneSendKeys surfaces the error envelope on failure", async () => {
+    const { exec } = fakeExec([
+      {
+        stdout: JSON.stringify({
+          error: { code: "pane_not_found", message: "pane w1:p3 not found" },
+          id: "cli:request",
+        }),
+        code: 1,
+      },
+    ]);
+    const client = createHerdrClient({ exec });
+    await assert.rejects(() => client.paneSendKeys("w1:p3", ["esc"]), /pane_not_found/);
   });
 
   it("ping returns protocol/version info", async () => {

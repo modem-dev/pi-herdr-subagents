@@ -201,7 +201,10 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
     },
 
     async paneSendKeys(paneId, keys) {
-      await execHerdrJson(["pane", "send-keys", paneId, ...keys]);
+      // Unlike the other pane commands, `pane send-keys` prints NOTHING on
+      // success (verified live against herdr 0.7.1) — only demand exit 0;
+      // failures still surface via the error envelope + nonzero exit.
+      await execHerdr(["pane", "send-keys", paneId, ...keys]);
     },
 
     async ping() {
