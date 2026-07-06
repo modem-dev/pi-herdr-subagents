@@ -1,0 +1,30 @@
+{
+  "name": "pi-herder-subagents",
+  "version": "0.1.0",
+  "description": "Interactive subagent orchestration for pi, built natively on herdr — spawn, resume, and interrupt subagents in herdr panes with truthful lifecycle events",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "MIT",
+  "author": "Justin",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "test:integration": "node --test --test-concurrency=1 test/integration/*.test.ts"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.65.0",
+    "@mariozechner/pi-tui": "^0.65.0",
+    "@sinclair/typebox": "^0.34.49"
+  }
+}
