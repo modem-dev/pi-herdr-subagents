@@ -24,8 +24,11 @@ export interface HerdrPaneEvent {
 export interface HerdrEventStream {
   /** Register a listener for a pane. Returns an unwatch function. */
   watch(paneId: string, listener: (ev: HerdrPaneEvent) => void): () => void;
-  /** Called after every successful re-subscribe (events may have been missed). */
-  onReconcile(cb: () => void): void;
+  /**
+   * Called after every successful re-subscribe (events may have been missed).
+   * Returns an unsubscribe function (watchers must unregister on completion).
+   */
+  onReconcile(cb: () => void): () => void;
   close(): void;
   /** True while subscribed (ack received, socket open). Diagnostic/test seam. */
   readonly connected: boolean;
@@ -169,6 +172,10 @@ export function createHerdrEventStream(opts: {
     },
     onReconcile(cb) {
       reconcileCallbacks.push(cb);
+      return () => {
+        const idx = reconcileCallbacks.indexOf(cb);
+        if (idx !== -1) reconcileCallbacks.splice(idx, 1);
+      };
     },
     close,
     get connected() {

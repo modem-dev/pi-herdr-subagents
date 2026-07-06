@@ -221,6 +221,24 @@ describe("HerdrEventStream", () => {
     assert.equal(received[0].event, "pane_exited");
   });
 
+  it("onReconcile returns an unsubscribe function", async () => {
+    const { server, stream, conn } = await connect([10, 10]);
+    await waitFor(() => stream.connected);
+
+    let kept = 0;
+    let removed = 0;
+    stream.onReconcile(() => kept++);
+    const off = stream.onReconcile(() => removed++);
+    off();
+
+    const resubscribed = server.nextSubscribed();
+    conn.destroy();
+    await resubscribed;
+    await waitFor(() => kept > 0);
+    assert.equal(kept, 1);
+    assert.equal(removed, 0, "unsubscribed callback must not fire");
+  });
+
   it("abort signal closes socket and stops reconnecting", async () => {
     const { server, stream, controller } = await connect([10, 10]);
     await waitFor(() => stream.connected);
