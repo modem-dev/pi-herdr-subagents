@@ -181,6 +181,45 @@ describe("watcher: lifecycle classification matrix", () => {
     });
   });
 
+  it("stale exit-0 sidecar with the pane still alive is consumed, not trusted", async () => {
+    // Verified live (resume race): resuming a session whose previous pi is
+    // still tearing down can see the OLD wrapper's exit-0 sidecar land after
+    // subagent_resume cleared it. An exit-0 wrapper closes its pane
+    // immediately, so exit 0 + live pane = not our exit — consume and keep
+    // watching until the REAL signal arrives.
+    const running = makeRunning();
+    writeSession(running.sessionFile, "Old conversation tail.");
+    const fakeStream = makeFakeStream();
+    const fakeClient = makeFakeClient({ panes: [{ pane_id: running.paneId }] });
+
+    const promise = watch(running, {
+      stream: fakeStream.stream,
+      client: fakeClient.client,
+      pollIntervalMs: 20,
+    });
+
+    // Stale sidecar from the previous run lands while OUR pane is alive.
+    writeFileSync(`${running.sessionFile}.exitcode`, "0\n");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.ok(
+      !existsSync(`${running.sessionFile}.exitcode`),
+      "stale exit-0 sidecar should be consumed while the pane lives",
+    );
+
+    // The real completion: child writes the done sidecar and the pane closes.
+    writeSession(running.sessionFile, "Fresh answer after resume.");
+    writeFileSync(`${running.sessionFile}.exit`, JSON.stringify({ type: "done" }));
+    fakeClient.setPanes([]);
+    fakeStream.fire(running.paneId, "pane_exited");
+    const outcome = await promise;
+
+    assert.deepEqual(outcome, {
+      kind: "completed",
+      summary: "Fresh answer after resume.",
+      exitCode: 0,
+    });
+  });
+
   it("exit 7 within startup window, empty session, no pane event → launch-failed (hold-open)", async () => {
     const running = makeRunning();
     const fakeStream = makeFakeStream();

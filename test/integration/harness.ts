@@ -377,6 +377,15 @@ export async function createTestSession(): Promise<TestSession> {
   copyFileSync(join(REAL_AGENT_DIR, "auth.json"), join(configDir, "auth.json"));
   const systemMd = join(REAL_AGENT_DIR, "SYSTEM.md");
   if (existsSync(systemMd)) copyFileSync(systemMd, join(configDir, "SYSTEM.md"));
+  // Mirror the host's transport setting: pi's default HTTP transport produced
+  // intermittent "Request timed out ×4 → retry failed" turns on this machine,
+  // while the developer's daily-driver transport is reliable.
+  let transport = "websocket-cached";
+  try {
+    const realSettings = JSON.parse(readFileSync(join(REAL_AGENT_DIR, "settings.json"), "utf8"));
+    if (typeof realSettings.transport === "string") transport = realSettings.transport;
+  } catch {}
+  writeFileSync(join(configDir, "settings.json"), JSON.stringify({ transport }), "utf8");
   writeFileSync(join(configDir, "agents", "test-echo.md"), TEST_ECHO_DEF, "utf8");
   writeFileSync(join(configDir, "agents", "test-ping.md"), TEST_PING_DEF, "utf8");
 

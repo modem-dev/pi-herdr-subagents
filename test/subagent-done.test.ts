@@ -45,6 +45,30 @@ describe("subagent-done: shouldAutoExitOnAgentEnd", () => {
   it("defaults to exiting when no messages are available", () => {
     assert.equal(shouldAutoExitOnAgentEnd(false, undefined), true);
   });
+
+  it("stays open when the turn produced no new assistant message (errored/retrying turn)", () => {
+    // Resumed-session failure mode (verified live, pi 0.80.3): the resume
+    // message is delivered, the first request times out, pi schedules a retry,
+    // and agent_end fires with the conversation ending at the just-delivered
+    // USER message. Walking backwards would find the PREVIOUS conversation's
+    // assistant (stopReason "stop") and shut pi down mid-retry.
+    const messages = [
+      { role: "assistant", stopReason: "stop" }, // stale: pre-resume history
+      { role: "user" }, // the resume message — no reply yet
+    ];
+    assert.equal(shouldAutoExitOnAgentEnd(false, messages), false);
+  });
+
+  it("still auto-exits when a completed turn follows a resumed conversation", () => {
+    const messages = [
+      { role: "assistant", stopReason: "stop" },
+      { role: "user" },
+      { role: "assistant", stopReason: "toolUse" },
+      { role: "toolResult" },
+      { role: "assistant", stopReason: "stop" },
+    ];
+    assert.equal(shouldAutoExitOnAgentEnd(false, messages), true);
+  });
 });
 
 describe("subagent-done: parseDeniedTools", () => {

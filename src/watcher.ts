@@ -199,10 +199,45 @@ export function watchSubagent(
       return null; // sidecar trigger without sidecars — not a signal
     }
 
+    let staleCheckInFlight = false;
+
     function trySettle(trigger: Trigger): void {
       if (done) return;
       const outcome = classify(trigger);
-      if (outcome) finish(outcome, true);
+      if (!outcome) return;
+
+      // Stale-sidecar guard (verified live in the resume race): resuming a
+      // session whose previous pi is still tearing down can see the OLD
+      // wrapper's exit-0 sidecar land AFTER subagent_resume cleared it. An
+      // exit-0 wrapper closes its pane immediately, so exit 0 signalled by a
+      // sidecar while OUR pane is still alive cannot be ours — consume it and
+      // keep watching. (Nonzero exits pass through: hold-open keeps the pane
+      // alive on purpose, and pane events/reconcile prove the pane is gone.)
+      if (outcome.kind === "completed-user-exit" && trigger === "sidecar") {
+        if (staleCheckInFlight) return;
+        staleCheckInFlight = true;
+        void deps.client
+          .paneGet(running.paneId)
+          .then((pane) => {
+            if (done) return;
+            if (pane !== null) {
+              try {
+                rmSync(exitcodeFile, { force: true });
+              } catch {}
+              return;
+            }
+            finish(outcome, true);
+          })
+          .catch(() => {
+            // herdr unreachable — keep watching; the next signal retries
+          })
+          .finally(() => {
+            staleCheckInFlight = false;
+          });
+        return;
+      }
+
+      finish(outcome, true);
     }
 
     // ── signal source (a): pane events ──
