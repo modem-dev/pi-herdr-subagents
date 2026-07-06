@@ -244,6 +244,46 @@ function resolveHoldOpenSecs(env: Record<string, string | undefined>): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_HOLD_OPEN_SECS;
 }
 
+/**
+ * Assemble the wrapper-script body shared by spawn and resume launches:
+ * curated exports → cd → (prefix-wrapped) pi invocation → exitcode sidecar →
+ * startup-crash hold-open → exit passthrough.
+ */
+function buildWrapperScript(opts: {
+  env: Record<string, string | undefined>;
+  headerLines: string[];
+  exports: string[];
+  cwd: string;
+  piArgv: string[];
+  sessionFile: string;
+}): { content: string; holdOpenSecs: number } {
+  const launchPrefix = resolveLaunchPrefix(opts.env, opts.cwd);
+  const holdOpenSecs = resolveHoldOpenSecs(opts.env);
+  const piCommand =
+    (launchPrefix ? `${launchPrefix} ` : "") + opts.piArgv.map((arg) => shellEscape(arg)).join(" ");
+
+  const scriptLines = [
+    "#!/usr/bin/env bash",
+    ...opts.headerLines,
+    ...opts.exports,
+    `cd ${shellEscape(opts.cwd)}`,
+    piCommand,
+    'code=$?',
+    `echo "$code" > ${shellEscape(`${opts.sessionFile}.exitcode`)}`,
+    ...(holdOpenSecs > 0
+      ? [
+          `if [ "$code" -ne 0 ] && [ "$SECONDS" -lt ${holdOpenSecs} ]; then`,
+          `  echo "subagent crashed (exit $code) — press Enter to close"`,
+          "  read -r",
+          "fi",
+        ]
+      : []),
+    'exit "$code"',
+    "",
+  ];
+  return { content: scriptLines.join("\n"), holdOpenSecs };
+}
+
 export function buildLaunchPlan(
   params: SubagentLaunchParams,
   agentDefs: AgentDefaults | null,
@@ -385,35 +425,21 @@ export function buildLaunchPlan(
   exports.push('export PI_SUBAGENT_PANE="${HERDR_PANE_ID:-}"');
 
   // ── Wrapper script ──
-  const launchPrefix = resolveLaunchPrefix(env, targetCwd);
-  const holdOpenSecs = resolveHoldOpenSecs(env);
-  const piCommand =
-    (launchPrefix ? `${launchPrefix} ` : "") + piArgv.map((arg) => shellEscape(arg)).join(" ");
-
-  const scriptLines = [
-    "#!/usr/bin/env bash",
-    `# Subagent launch script for ${params.name}`,
-    `# Generated: ${now.toISOString()}`,
-    `# Session: ${sessionFile}`,
-    ...exports,
-    `cd ${shellEscape(targetCwd)}`,
-    piCommand,
-    'code=$?',
-    `echo "$code" > ${shellEscape(`${sessionFile}.exitcode`)}`,
-    ...(holdOpenSecs > 0
-      ? [
-          `if [ "$code" -ne 0 ] && [ "$SECONDS" -lt ${holdOpenSecs} ]; then`,
-          `  echo "subagent crashed (exit $code) — press Enter to close"`,
-          "  read -r",
-          "fi",
-        ]
-      : []),
-    'exit "$code"',
-    "",
-  ];
+  const { content: scriptContent, holdOpenSecs } = buildWrapperScript({
+    env,
+    headerLines: [
+      `# Subagent launch script for ${params.name}`,
+      `# Generated: ${now.toISOString()}`,
+      `# Session: ${sessionFile}`,
+    ],
+    exports,
+    cwd: targetCwd,
+    piArgv,
+    sessionFile,
+  });
 
   const launchScriptFile = join(artifactDir, "subagent-scripts", `${name}-${id}.sh`);
-  files.push({ path: launchScriptFile, content: scriptLines.join("\n") });
+  files.push({ path: launchScriptFile, content: scriptContent });
 
   return {
     id,
@@ -430,6 +456,139 @@ export function buildLaunchPlan(
     agentStart: {
       name: params.name,
       cwd: targetCwd,
+      tabId: env.HERDR_TAB_ID,
+      split: "down",
+      argv: ["bash", launchScriptFile],
+    },
+    piArgv,
+    interactive,
+    autoExit,
+    holdOpenSecs,
+  };
+}
+
+// ── resume launches ─────────────────────────────────────────────────────────
+
+export interface ResumeLaunchParams {
+  sessionPath: string;
+  name?: string;
+  message?: string;
+  autoExit?: boolean;
+}
+
+/**
+ * Ported from pi-interactive-subagents: resumed sessions default to
+ * autonomous follow-up work (auto-exit, non-interactive); explicit
+ * autoExit: false yields an interactive resumed session.
+ */
+export function resolveResumeLaunchBehavior(params: { autoExit?: boolean }): {
+  autoExit: boolean;
+  interactive: boolean;
+} {
+  const autoExit = params.autoExit ?? true;
+  return { autoExit, interactive: !autoExit };
+}
+
+export interface ResumeLaunchPlan {
+  id: string;
+  name: string;
+  /** The existing child session file being resumed. */
+  sessionFile: string;
+  launchScriptFile: string;
+  resumeMessageFile: string | null;
+  /** Files the executor must write (mkdir -p dirname first). Includes the launch script. */
+  files: Array<{ path: string; content: string }>;
+  agentStart: {
+    name: string;
+    cwd: string;
+    tabId?: string;
+    split?: "right" | "down";
+    argv: string[];
+  };
+  piArgv: string[];
+  interactive: boolean;
+  autoExit: boolean;
+  holdOpenSecs: number;
+}
+
+/**
+ * Plan a resume launch: pi --session <existing path> -e subagent-done.ts,
+ * plus an optional @<artifact> follow-up message. Same wrapper-script
+ * machinery (curated env, direnv wrap, exitcode sidecar, hold-open) as
+ * buildLaunchPlan; the pane runs in the orchestrator's cwd.
+ *
+ * NOTE: the executor must rmSync <sessionPath>.exit and <sessionPath>.exitcode
+ * (force: true) before launching — stale sidecars from the previous run would
+ * otherwise complete the new watcher instantly.
+ */
+export function buildResumeLaunchPlan(
+  params: ResumeLaunchParams,
+  ctx: LaunchPlanContext,
+): ResumeLaunchPlan {
+  const env = ctx.env;
+  const now = ctx.now ?? new Date();
+  const id = ctx.id ?? Math.random().toString(16).slice(2, 10);
+  const displayName = params.name ?? "Resume";
+  const { autoExit, interactive } = resolveResumeLaunchBehavior(params);
+
+  const artifactDir = getArtifactDir(ctx.sessionDir, ctx.sessionId);
+  const artifactTimestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const name = safeName(displayName);
+  const files: Array<{ path: string; content: string }> = [];
+
+  // ── pi argv ──
+  const piBin = env.PI_HERDER_PI_BIN ?? (ctx.resolvePiBin ?? defaultResolvePiBin)(env);
+  const subagentDonePath = ctx.subagentDonePath ?? join(PACKAGE_ROOT, "subagent-done.ts");
+  const piArgv: string[] = [piBin, "--session", params.sessionPath, "-e", subagentDonePath];
+
+  let resumeMessageFile: string | null = null;
+  if (params.message) {
+    resumeMessageFile = join(artifactDir, "subagent-resume", `${name}-${artifactTimestamp}.md`);
+    files.push({ path: resumeMessageFile, content: params.message });
+    piArgv.push(`@${resumeMessageFile}`);
+  }
+
+  // ── Curated env exports (never a full env dump) ──
+  const exports: string[] = [];
+  if (env.PATH) exports.push(`export PATH=${shellEscape(env.PATH)}`);
+  if (env.PI_CODING_AGENT_DIR) {
+    exports.push(`export PI_CODING_AGENT_DIR=${shellEscape(env.PI_CODING_AGENT_DIR)}`);
+  }
+  exports.push(`export PI_SUBAGENT_NAME=${shellEscape(displayName)}`);
+  if (autoExit) {
+    exports.push("export PI_SUBAGENT_AUTO_EXIT=1");
+  }
+  exports.push(`export PI_SUBAGENT_SESSION=${shellEscape(params.sessionPath)}`);
+  exports.push(`export PI_SUBAGENT_ID=${shellEscape(id)}`);
+  exports.push('export PI_SUBAGENT_PANE="${HERDR_PANE_ID:-}"');
+
+  const { content: scriptContent, holdOpenSecs } = buildWrapperScript({
+    env,
+    headerLines: [
+      `# Subagent resume script for ${displayName}`,
+      `# Generated: ${now.toISOString()}`,
+      `# Session: ${params.sessionPath}`,
+      ...(resumeMessageFile ? [`# Resume message file: ${resumeMessageFile}`] : []),
+    ],
+    exports,
+    cwd: ctx.parentCwd,
+    piArgv,
+    sessionFile: params.sessionPath,
+  });
+
+  const launchScriptFile = join(artifactDir, "subagent-scripts", `${name}-resume-${id}.sh`);
+  files.push({ path: launchScriptFile, content: scriptContent });
+
+  return {
+    id,
+    name: displayName,
+    sessionFile: params.sessionPath,
+    launchScriptFile,
+    resumeMessageFile,
+    files,
+    agentStart: {
+      name: displayName,
+      cwd: ctx.parentCwd,
       tabId: env.HERDR_TAB_ID,
       split: "down",
       argv: ["bash", launchScriptFile],

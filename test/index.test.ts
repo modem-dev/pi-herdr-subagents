@@ -261,6 +261,9 @@ describe("index: activation guard", () => {
     const fake = createFakePi();
     herderSubagents(fake.api);
     assert.ok(!fake.toolNames().includes("subagent"));
+    // other spawning tools are gated individually, not as a block
+    assert.ok(fake.toolNames().includes("subagent_interrupt"));
+    assert.ok(fake.toolNames().includes("subagents_list"));
   });
 
   it("inside herdr but lost the registry race → visible session_start warning", () => {

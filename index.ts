@@ -21,20 +21,24 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadAgentDefaults } from "./src/agents.ts";
+import { discoverAgentDefinitions, loadAgentDefaults } from "./src/agents.ts";
 import { createHerdrClient, type HerdrClient } from "./src/herdr/client.ts";
 import { createHerdrEventStream } from "./src/herdr/events.ts";
-import { buildLaunchPlan } from "./src/launch.ts";
+import {
+  buildLaunchPlan,
+  buildResumeLaunchPlan,
+  resolveResumeLaunchBehavior,
+} from "./src/launch.ts";
 import {
   buildOutcomeMessage,
   renderSubagentPing,
   renderSubagentResult,
 } from "./src/messages.ts";
-import { seedSubagentSessionFile } from "./src/session.ts";
+import { findLastAssistantMessage, getNewEntries, seedSubagentSessionFile } from "./src/session.ts";
 import {
   watchSubagent,
   type RunningSubagent,
@@ -346,10 +350,7 @@ async function executeSubagentSpawn(
   }
 
   // Execute the plan: write artifacts, seed the child session, start the pane.
-  for (const file of plan.files) {
-    mkdirSync(dirname(file.path), { recursive: true });
-    writeFileSync(file.path, file.content, "utf8");
-  }
+  writePlanFiles(plan.files);
   if (plan.seedSession) {
     seedSubagentSessionFile(plan.seedSession);
   }
@@ -398,6 +399,13 @@ async function executeSubagentSpawn(
       status: "started",
     },
   };
+}
+
+function writePlanFiles(files: Array<{ path: string; content: string }>): void {
+  for (const file of files) {
+    mkdirSync(dirname(file.path), { recursive: true });
+    writeFileSync(file.path, file.content, "utf8");
+  }
 }
 
 function registerSubagentTool(pi: ExtensionAPI): void {
@@ -465,6 +473,397 @@ function registerSubagentTool(pi: ExtensionAPI): void {
   });
 }
 
+// ── subagent_resume ─────────────────────────────────────────────────────────
+
+function safeGetNewEntries(sessionFile: string, afterLine: number) {
+  try {
+    return getNewEntries(sessionFile, afterLine);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Re-scope a resumed subagent's outcome summary to entries added AFTER the
+ * resume launch (ported reference behavior): the pre-existing conversation
+ * must not masquerade as new output. Launch failures and pings pass through
+ * untouched — their payloads are already truthful.
+ */
+function resolveResumeOutcome(
+  outcome: SubagentOutcome,
+  sessionPath: string,
+  entryCountBefore: number,
+): SubagentOutcome {
+  const newSummary = () =>
+    findLastAssistantMessage(safeGetNewEntries(sessionPath, entryCountBefore));
+
+  switch (outcome.kind) {
+    case "completed":
+    case "completed-user-exit":
+      return { ...outcome, summary: newSummary() ?? "Resumed session exited without new output" };
+    case "crashed":
+    case "pane-killed":
+    case "gap-exit":
+      return { ...outcome, summary: newSummary() };
+    default:
+      return outcome;
+  }
+}
+
+const RESUME_DESCRIPTION =
+  "Resume a previous sub-agent session in a new herdr pane. " +
+  "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
+  "When the resumed sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
+  "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT poll for status. All of that is wasted work — the harness handles delivery for you. " +
+  "DO NOT fabricate or assume results. After resuming, either end your turn or work on other independent tasks; the harness will wake you when the result is ready. " +
+  "Use when a sub-agent was cancelled or needs follow-up work.";
+
+async function executeSubagentResume(
+  pi: ExtensionAPI,
+  params: { sessionPath: string; name?: string; message?: string; autoExit?: boolean },
+  ctx: {
+    cwd: string;
+    sessionManager: {
+      getSessionFile(): string | null;
+      getSessionId(): string;
+      getSessionDir(): string;
+    };
+  },
+) {
+  if (!existsSync(params.sessionPath)) {
+    return errorResult(
+      `Error: session file not found: ${params.sessionPath}`,
+      "session not found",
+    );
+  }
+
+  // Record entry count before resuming so we can extract only new messages.
+  const entryCountBefore = safeGetNewEntries(params.sessionPath, 0).length;
+
+  let plan;
+  try {
+    plan = buildResumeLaunchPlan(params, {
+      sessionDir: ctx.sessionManager.getSessionDir(),
+      sessionId: ctx.sessionManager.getSessionId(),
+      parentSessionFile: ctx.sessionManager.getSessionFile() ?? "",
+      parentCwd: ctx.cwd,
+      env: process.env,
+    });
+  } catch (error: any) {
+    const message = error?.message ?? String(error);
+    return errorResult(`Failed to plan resume launch: ${message}`, message);
+  }
+
+  // Stale-sidecar belt & braces: completion signals from the previous run
+  // would resolve the new watcher instantly.
+  rmSync(`${params.sessionPath}.exit`, { force: true });
+  rmSync(`${params.sessionPath}.exitcode`, { force: true });
+
+  writePlanFiles(plan.files);
+
+  let started;
+  try {
+    started = await deps.client.agentStart(plan.agentStart);
+  } catch (error: any) {
+    const message = error?.message ?? String(error);
+    return errorResult(`Failed to start herdr pane for "${plan.name}": ${message}`, message);
+  }
+
+  const running: RunningSubagent = {
+    id: plan.id,
+    name: plan.name,
+    task: params.message ?? "resumed session",
+    paneId: started.paneId,
+    startTime: Date.now(),
+    sessionFile: params.sessionPath,
+    launchScriptFile: plan.launchScriptFile,
+    interactive: plan.interactive,
+    autoExit: plan.autoExit,
+  };
+  armWatcher(pi, running, (outcome) =>
+    resolveResumeOutcome(outcome, params.sessionPath, entryCountBefore),
+  );
+
+  return {
+    content: [{ type: "text" as const, text: `Session "${plan.name}" resumed.` }],
+    details: {
+      id: running.id,
+      name: plan.name,
+      paneId: running.paneId,
+      sessionPath: params.sessionPath,
+      launchScriptFile: plan.launchScriptFile,
+      status: "started",
+    },
+  };
+}
+
+function registerResumeTool(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "subagent_resume",
+    label: "Resume Subagent",
+    description: RESUME_DESCRIPTION,
+    promptSnippet: RESUME_DESCRIPTION,
+    parameters: Type.Object({
+      sessionPath: Type.String({ description: "Path to the session .jsonl file to resume" }),
+      name: Type.Optional(
+        Type.String({ description: "Display name for the herdr pane. Default: 'Resume'" }),
+      ),
+      message: Type.Optional(
+        Type.String({
+          description: "Optional message to send after resuming (e.g. follow-up instructions)",
+        }),
+      ),
+      autoExit: Type.Optional(
+        Type.Boolean({
+          description:
+            "Whether the resumed session should automatically exit after completing its response. Defaults to true for autonomous follow-up work; set false for interactive resumed sessions.",
+        }),
+      ),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      return executeSubagentResume(pi, params, ctx as any);
+    },
+
+    renderCall(args, theme) {
+      const name = (args as any).name ?? "Resume";
+      return new Text(
+        "▸ " + theme.fg("toolTitle", theme.bold(name)) + theme.fg("dim", " — resuming session"),
+        0,
+        0,
+      );
+    },
+
+    renderResult(result, _opts, theme) {
+      const details = result.details as any;
+      const name = details?.name ?? "Resume";
+
+      if (details?.status === "started") {
+        return new Text(
+          theme.fg("accent", "▸") +
+            " " +
+            theme.fg("toolTitle", theme.bold(name)) +
+            theme.fg("dim", " — resumed"),
+          0,
+          0,
+        );
+      }
+
+      const text = typeof result.content[0]?.text === "string" ? result.content[0].text : "";
+      return new Text(theme.fg("dim", text), 0, 0);
+    },
+  });
+}
+
+// ── subagent_interrupt ──────────────────────────────────────────────────────
+
+export function resolveInterruptTarget(params: {
+  id?: string;
+  name?: string;
+}): { running: RunningSubagent } | { error: string } {
+  const requestedId = params.id?.trim();
+  if (requestedId) {
+    const running = runningSubagents.get(requestedId);
+    return running ? { running } : { error: `No running subagent with id "${requestedId}".` };
+  }
+
+  const requestedName = params.name?.trim();
+  if (!requestedName) {
+    return { error: "Provide a running subagent id or exact display name." };
+  }
+
+  const matches = Array.from(runningSubagents.values()).filter(
+    (running) => running.name === requestedName,
+  );
+  if (matches.length === 1) return { running: matches[0] };
+  if (matches.length === 0) {
+    return { error: `No running subagent named "${requestedName}".` };
+  }
+
+  const candidates = matches.map((running) => `${running.name} [${running.id}]`).join(", ");
+  return { error: `Ambiguous subagent name "${requestedName}". Matches: ${candidates}` };
+}
+
+async function handleSubagentInterrupt(params: { id?: string; name?: string }) {
+  const resolved = resolveInterruptTarget(params);
+  if ("error" in resolved) {
+    return errorResult(resolved.error, resolved.error);
+  }
+
+  const running = resolved.running;
+  try {
+    // "esc" is herdr key-combo syntax (src/input/parse.rs maps it to KeyCode::Esc).
+    await deps.client.paneSendKeys(running.paneId, ["esc"]);
+  } catch (error: any) {
+    const message =
+      `Failed to send Escape to subagent "${running.name}" via herdr: ` +
+      `${error?.message ?? String(error)}`;
+    return {
+      content: [{ type: "text" as const, text: message }],
+      details: { error: error?.message ?? String(error), id: running.id, name: running.name },
+    };
+  }
+
+  return {
+    content: [
+      { type: "text" as const, text: `Interrupt requested for subagent "${running.name}".` },
+    ],
+    details: { id: running.id, name: running.name, status: "interrupt_requested" },
+  };
+}
+
+const INTERRUPT_DESCRIPTION =
+  "Send Escape to the active turn of a currently running subagent. " +
+  "The child pane, session, watcher, and running entry remain alive; this returns only a local acknowledgement " +
+  "and does not emit a subagent_result solely because of this request.";
+
+function registerInterruptTool(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "subagent_interrupt",
+    label: "Interrupt Subagent",
+    description: INTERRUPT_DESCRIPTION,
+    promptSnippet: INTERRUPT_DESCRIPTION,
+    parameters: Type.Object({
+      id: Type.Optional(Type.String({ description: "Exact running subagent id" })),
+      name: Type.Optional(Type.String({ description: "Exact running subagent display name" })),
+    }),
+
+    async execute(_toolCallId, params) {
+      return handleSubagentInterrupt(params);
+    },
+
+    renderCall(args, theme) {
+      const target = (args as any).id ? `${(args as any).id}` : ((args as any).name ?? "(unknown)");
+      return new Text(
+        theme.fg("accent", "▸") +
+          " " +
+          theme.fg("toolTitle", theme.bold(target)) +
+          theme.fg("dim", " — interrupt turn"),
+        0,
+        0,
+      );
+    },
+
+    renderResult(result, _opts, theme) {
+      const details = result.details as any;
+      if (details?.status === "interrupt_requested") {
+        return new Text(
+          theme.fg("accent", "▸") +
+            " " +
+            theme.fg("toolTitle", theme.bold(details.name ?? details.id ?? "subagent")) +
+            theme.fg("dim", " — interrupt requested"),
+          0,
+          0,
+        );
+      }
+
+      const text = typeof result.content[0]?.text === "string" ? result.content[0].text : "";
+      return new Text(theme.fg("dim", text), 0, 0);
+    },
+  });
+}
+
+// ── subagents_list ──────────────────────────────────────────────────────────
+
+const LIST_DESCRIPTION =
+  "List all available subagent definitions. " +
+  "Scans project-local .pi/agents/ and global ~/.pi/agent/agents/. " +
+  "Project-local agents override global ones with the same name.";
+
+function registerListTool(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "subagents_list",
+    label: "List Subagents",
+    description: LIST_DESCRIPTION,
+    promptSnippet: LIST_DESCRIPTION,
+    parameters: Type.Object({}),
+
+    async execute() {
+      const list = discoverAgentDefinitions().filter((agent) => !agent.disableModelInvocation);
+
+      if (list.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No subagent definitions found." }],
+          details: { agents: [] },
+        };
+      }
+
+      const lines = list.map((a) => {
+        const badge = a.source === "project" ? " (project)" : "";
+        const desc = a.description ? ` — ${a.description}` : "";
+        const model = a.model ? ` [${a.model}]` : "";
+        return `• ${a.name}${badge}${model}${desc}`;
+      });
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        details: { agents: list },
+      };
+    },
+
+    renderResult(result, _opts, theme) {
+      const details = result.details as any;
+      const agents = details?.agents ?? [];
+      if (agents.length === 0) {
+        return new Text(theme.fg("dim", "No subagent definitions found."), 0, 0);
+      }
+      const lines = agents.map((a: any) => {
+        const badge = a.source === "project" ? theme.fg("accent", " (project)") : "";
+        const desc = a.description ? theme.fg("dim", ` — ${a.description}`) : "";
+        const model = a.model ? theme.fg("dim", ` [${a.model}]`) : "";
+        return `  ${theme.fg("toolTitle", theme.bold(a.name))}${badge}${model}${desc}`;
+      });
+      return new Text(lines.join("\n"), 0, 0);
+    },
+  });
+}
+
+// ── commands ────────────────────────────────────────────────────────────────
+
+function registerCommands(pi: ExtensionAPI): void {
+  // /iterate — fork the session into a subagent
+  pi.registerCommand("iterate", {
+    description: "Fork session into a subagent for focused work (bugfixes, iteration)",
+    handler: async (args, _ctx) => {
+      const task = args.trim() || "";
+      const toolCall = task
+        ? `Use subagent to fork a session. fork: true, name: "Iterate", task: ${JSON.stringify(task)}`
+        : `Use subagent to fork a session. fork: true, name: "Iterate", task: "The user wants to do some hands-on work. Help them with whatever they need."`;
+      pi.sendUserMessage(toolCall);
+    },
+  });
+
+  // /subagent — spawn a subagent by name
+  pi.registerCommand("subagent", {
+    description: "Spawn a subagent: /subagent <agent> <task>",
+    handler: async (args, ctx) => {
+      const trimmed = args.trim();
+      if (!trimmed) {
+        ctx.ui.notify("Usage: /subagent <agent> [task]", "warning");
+        return;
+      }
+
+      const spaceIdx = trimmed.indexOf(" ");
+      const agentName = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+      const task = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx + 1).trim();
+
+      const defs = loadAgentDefaults(agentName);
+      if (!defs) {
+        ctx.ui.notify(
+          `Agent "${agentName}" not found in ~/.pi/agent/agents/ or .pi/agents/`,
+          "error",
+        );
+        return;
+      }
+
+      const taskText = task || `You are the ${agentName} agent. Wait for instructions.`;
+      const displayName = agentName[0].toUpperCase() + agentName.slice(1);
+      const toolCall = `Use subagent with agent: "${agentName}", name: "${displayName}", task: ${JSON.stringify(taskText)}`;
+      pi.sendUserMessage(toolCall);
+    },
+  });
+}
+
 // ── extension entry ─────────────────────────────────────────────────────────
 
 export default function herderSubagents(pi: ExtensionAPI) {
@@ -482,6 +881,10 @@ export default function herderSubagents(pi: ExtensionAPI) {
   let registeredRealTools = false;
   if (inHerdr) {
     if (shouldRegister("subagent")) registerSubagentTool(pi);
+    if (shouldRegister("subagent_resume")) registerResumeTool(pi);
+    if (shouldRegister("subagent_interrupt")) registerInterruptTool(pi);
+    if (shouldRegister("subagents_list")) registerListTool(pi);
+    registerCommands(pi);
     registeredRealTools = true;
   }
 
@@ -558,6 +961,9 @@ export const __test__ = {
   isInsideHerdr,
   runningSubagents,
   renderSubagentWidgetLines,
+  resolveInterruptTarget,
+  resolveResumeLaunchBehavior,
+  resolveResumeOutcome,
   setDeps(overrides: Partial<RuntimeDeps>): void {
     deps = { ...deps, ...overrides };
   },
