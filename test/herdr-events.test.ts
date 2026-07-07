@@ -29,7 +29,7 @@ class FakeHerdrServer {
   }
 
   static async start(): Promise<FakeHerdrServer> {
-    const tmpDir = mkdtempSync(join(tmpdir(), "herder-ev-"));
+    const tmpDir = mkdtempSync(join(tmpdir(), "herdr-ev-"));
     const server = net.createServer();
     const fake = new FakeHerdrServer(tmpDir, server);
     server.on("connection", (socket) => {

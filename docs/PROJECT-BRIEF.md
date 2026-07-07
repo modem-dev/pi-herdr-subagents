@@ -1,4 +1,4 @@
-# pi-herder-subagents — Project Brief / Spec
+# pi-herdr-subagents — Project Brief / Spec
 
 **Date:** 2026-07-06.
 
@@ -89,9 +89,9 @@ agent def previously produced a silent zombie — with herdr the pane exit is an
    - modify `~/.pi/agent/settings.json` or anything under `~/.pi/` (except reading agent defs),
    - modify the live pi-interactive-subagents checkout (the live extension source),
    - touch tmux sessions/panes you did not create, or any herdr session you did not create.
-   Test recipe (verified): create your own tmux session; run `herdr --session herder-test` in a
+   Test recipe (verified): create your own tmux session; run `herdr --session herdr-test` in a
    pane there (client needs a TTY; this starts an isolated server+socket); drive it headless via
-   `HERDR_SESSION=herder-test herdr <cmd>`. Load the extension under test explicitly
+   `HERDR_SESSION=herdr-test herdr <cmd>`. Load the extension under test explicitly
    with `pi -e <this-repo>/<entry>.ts` (never via installed packages).
    Note: `~/.local/bin` may not be on tool-shell PATH; use the absolute herdr path.
 
@@ -118,7 +118,7 @@ agent def previously produced a silent zombie — with herdr the pane exit is an
 - **Child state self-reporting** (`pane.report_agent` from a pi extension in the child) — nice to
   have, likely a later phase; the shipped `pi.toml` screen detection is thin (literal
   `Working...`) but functional today.
-- Naming of tools (`subagent` vs `herder_*`): keep familiar names BUT both extensions may be
+- Naming of tools (`subagent` vs `herdr_*`): keep familiar names BUT both extensions may be
   loaded side-by-side during the transition period — tool name collisions must be handled
   (e.g. registration guard, distinct names, or documented mutual exclusion; decide).
 

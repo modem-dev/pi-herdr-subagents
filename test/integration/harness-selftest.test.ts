@@ -11,7 +11,7 @@ import { assertIsolatedSocket, buildHerdrEnv } from "./harness.ts";
 
 describe("harness safety interlocks", () => {
   it("buildHerdrEnv strips every ambient HERDR_* var and pins the session", () => {
-    const env = buildHerdrEnv("herder-subagents-test-x", {
+    const env = buildHerdrEnv("herdr-subagents-test-x", {
       PATH: "/usr/bin",
       HERDR_ENV: "1",
       HERDR_PANE_ID: "w1:p1",
@@ -21,7 +21,7 @@ describe("harness safety interlocks", () => {
       HERDR_SESSION: "the-users-live-session",
       UNRELATED: "kept",
     });
-    assert.equal(env.HERDR_SESSION, "herder-subagents-test-x");
+    assert.equal(env.HERDR_SESSION, "herdr-subagents-test-x");
     assert.equal(env.PATH, "/usr/bin");
     assert.equal(env.UNRELATED, "kept");
     for (const key of Object.keys(env)) {
@@ -36,13 +36,13 @@ describe("harness safety interlocks", () => {
 
   it("assertIsolatedSocket refuses the default-session socket", () => {
     const defaultSocket = join(homedir(), ".config", "herdr", "herdr.sock");
-    assert.throws(() => assertIsolatedSocket(defaultSocket, "herder-subagents-test-x"), /SAFETY/);
+    assert.throws(() => assertIsolatedSocket(defaultSocket, "herdr-subagents-test-x"), /SAFETY/);
   });
 
   it("assertIsolatedSocket refuses another session's socket and empty paths", () => {
     const foreign = join(homedir(), ".config", "herdr", "sessions", "other-session", "herdr.sock");
-    assert.throws(() => assertIsolatedSocket(foreign, "herder-subagents-test-x"), /SAFETY/);
-    assert.throws(() => assertIsolatedSocket("", "herder-subagents-test-x"), /SAFETY/);
+    assert.throws(() => assertIsolatedSocket(foreign, "herdr-subagents-test-x"), /SAFETY/);
+    assert.throws(() => assertIsolatedSocket("", "herdr-subagents-test-x"), /SAFETY/);
   });
 
   it("assertIsolatedSocket accepts the named test session's socket", () => {
@@ -51,9 +51,9 @@ describe("harness safety interlocks", () => {
       ".config",
       "herdr",
       "sessions",
-      "herder-subagents-test-x",
+      "herdr-subagents-test-x",
       "herdr.sock",
     );
-    assertIsolatedSocket(own, "herder-subagents-test-x");
+    assertIsolatedSocket(own, "herdr-subagents-test-x");
   });
 });

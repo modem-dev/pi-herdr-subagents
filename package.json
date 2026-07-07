@@ -1,5 +1,5 @@
 {
-  "name": "pi-herder-subagents",
+  "name": "pi-herdr-subagents",
   "version": "0.1.0",
   "description": "Interactive subagent orchestration for pi, built natively on herdr — spawn, resume, and interrupt subagents in herdr panes with truthful lifecycle events",
   "keywords": [

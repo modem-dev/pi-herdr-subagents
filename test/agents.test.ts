@@ -26,7 +26,7 @@ import {
 // --- Helpers (same technique as the reference tests) ---
 
 function createTestDir(): string {
-  return mkdtempSync(join(tmpdir(), "herder-agents-test-"));
+  return mkdtempSync(join(tmpdir(), "herdr-agents-test-"));
 }
 
 function restoreEnvVar(name: string, value: string | undefined) {

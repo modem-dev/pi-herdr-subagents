@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 function makeRunning(overrides?: Partial<RunningSubagent>): RunningSubagent {
-  const dir = mkdtempSync(join(tmpdir(), "herder-watch-"));
+  const dir = mkdtempSync(join(tmpdir(), "herdr-watch-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return {
     id: "sub1",

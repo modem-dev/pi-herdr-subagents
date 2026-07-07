@@ -87,7 +87,7 @@ describe("subagent-done: parseDeniedTools", () => {
 
 describe("subagent-done: .exit sidecar shapes (cross-extension contract)", () => {
   function makeSessionFile(): string {
-    const dir = mkdtempSync(join(tmpdir(), "herder-done-"));
+    const dir = mkdtempSync(join(tmpdir(), "herdr-done-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     return join(dir, "child.jsonl");
   }

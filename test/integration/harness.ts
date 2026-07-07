@@ -376,8 +376,8 @@ export async function createTestSession(): Promise<TestSession> {
   if (!prereqs.ok) throw new Error(`integration prerequisites missing: ${prereqs.reason}`);
 
   const suffix = `${process.pid}-${Math.random().toString(36).slice(2, 7)}`;
-  const sessionName = `herder-subagents-test-${suffix}`;
-  const tmuxSession = `herder-sub-itest-${suffix}`;
+  const sessionName = `herdr-subagents-test-${suffix}`;
+  const tmuxSession = `herdr-sub-itest-${suffix}`;
   const herdrEnv = buildHerdrEnv(sessionName);
 
   // SAFETY interlocks before any action.
@@ -394,7 +394,7 @@ export async function createTestSession(): Promise<TestSession> {
   // Physical path (macOS tmpdir is a /var → /private/var symlink): direnv
   // keys its allow records by the PHYSICAL .envrc path, so `direnv exec` with
   // a logical /var cwd reports "blocked" even after `direnv allow` (live-found).
-  const tmpDir = realpathSync(mkdtempSync(join(tmpdir(), "pi-herder-itest-")));
+  const tmpDir = realpathSync(mkdtempSync(join(tmpdir(), "pi-herdr-itest-")));
   const configDir = join(tmpDir, "pi-config");
   mkdirSync(join(configDir, "agents"), { recursive: true });
   copyFileSync(join(REAL_AGENT_DIR, "auth.json"), join(configDir, "auth.json"));
@@ -526,7 +526,7 @@ export async function startOrchestrator(
     prompt: string;
     name?: string;
     cwd?: string;
-    /** Extra env exported in the launch script (e.g. PI_HERDER_DIRENV). */
+    /** Extra env exported in the launch script (e.g. PI_HERDR_DIRENV). */
     env?: Record<string, string>;
     model?: string;
   },
@@ -545,14 +545,14 @@ export async function startOrchestrator(
   const script = [
     "#!/usr/bin/env bash",
     `# Orchestrator launch script (integration harness) — ${name}`,
-    // The herdr server env may leak PI_SUBAGENT_*/PI_HERDER_* from wherever the
+    // The herdr server env may leak PI_SUBAGENT_*/PI_HERDR_* from wherever the
     // developer ran the tests; the orchestrator must start clean.
     "unset PI_SUBAGENT_NAME PI_SUBAGENT_AGENT PI_SUBAGENT_ID PI_SUBAGENT_SESSION \\",
     "  PI_SUBAGENT_AUTO_EXIT PI_SUBAGENT_PANE PI_DENY_TOOLS \\",
-    "  PI_HERDER_LAUNCH_PREFIX PI_HERDER_DIRENV PI_HERDER_HOLD_OPEN_SECS",
+    "  PI_HERDR_LAUNCH_PREFIX PI_HERDR_DIRENV PI_HERDR_HOLD_OPEN_SECS",
     `export PATH=${shellEscape(process.env.PATH ?? "")}`,
     `export PI_CODING_AGENT_DIR=${shellEscape(ts.configDir)}`,
-    `export PI_HERDER_PI_BIN=${shellEscape(piBin)}`,
+    `export PI_HERDR_PI_BIN=${shellEscape(piBin)}`,
     `export HERDR_BIN=${shellEscape(HERDR_BIN)}`,
     ...extraExports,
     `cd ${shellEscape(cwd)}`,

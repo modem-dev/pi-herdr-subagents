@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 function makeFixture(): Fixture {
-  const root = mkdtempSync(join(tmpdir(), "herder-launch-"));
+  const root = mkdtempSync(join(tmpdir(), "herdr-launch-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
 
   const cwd = join(root, "work");
@@ -119,34 +119,34 @@ describe("launch plan: env wrapping (direnv / prefix overrides)", () => {
     assert.ok(!script.includes("direnv"), `unexpected direnv in:\n${script}`);
   });
 
-  it("PI_HERDER_DIRENV=0 disables autodetect", () => {
+  it("PI_HERDR_DIRENV=0 disables autodetect", () => {
     const fx = makeFixture();
     writeFileSync(join(fx.cwd, ".envrc"), "use devenv\n");
-    fx.env.PI_HERDER_DIRENV = "0";
+    fx.env.PI_HERDR_DIRENV = "0";
     const script = scriptOf(plan(fx, { cwd: fx.cwd }));
     assert.ok(!script.includes("direnv"));
   });
 
-  it("PI_HERDER_LAUNCH_PREFIX overrides autodetect (plain prefix)", () => {
+  it("PI_HERDR_LAUNCH_PREFIX overrides autodetect (plain prefix)", () => {
     const fx = makeFixture();
     writeFileSync(join(fx.cwd, ".envrc"), "use devenv\n");
-    fx.env.PI_HERDER_LAUNCH_PREFIX = "mise exec --";
+    fx.env.PI_HERDR_LAUNCH_PREFIX = "mise exec --";
     const script = scriptOf(plan(fx, { cwd: fx.cwd }));
     assert.ok(script.includes(`mise exec -- ${shellEscape(fx.piBin)}`));
     assert.ok(!script.includes("direnv"));
   });
 
-  it("PI_HERDER_LAUNCH_PREFIX interpolates {cwd}", () => {
+  it("PI_HERDR_LAUNCH_PREFIX interpolates {cwd}", () => {
     const fx = makeFixture();
-    fx.env.PI_HERDER_LAUNCH_PREFIX = "nix develop {cwd} -c";
+    fx.env.PI_HERDR_LAUNCH_PREFIX = "nix develop {cwd} -c";
     const script = scriptOf(plan(fx, { cwd: fx.cwd }));
     assert.ok(script.includes(`nix develop ${shellEscape(fx.cwd)} -c ${shellEscape(fx.piBin)}`));
   });
 
-  it("empty PI_HERDER_LAUNCH_PREFIX disables wrapping even with .envrc", () => {
+  it("empty PI_HERDR_LAUNCH_PREFIX disables wrapping even with .envrc", () => {
     const fx = makeFixture();
     writeFileSync(join(fx.cwd, ".envrc"), "use devenv\n");
-    fx.env.PI_HERDER_LAUNCH_PREFIX = "";
+    fx.env.PI_HERDR_LAUNCH_PREFIX = "";
     const script = scriptOf(plan(fx, { cwd: fx.cwd }));
     assert.ok(!script.includes("direnv"));
     assert.ok(script.includes(`\n${shellEscape(fx.piBin)} `), "pi invoked unwrapped");
@@ -163,9 +163,9 @@ describe("launch plan: pi binary resolution", () => {
     assert.ok(!/(^|[^/'\w])pi\s/.test(script.split("\n").find((l) => l.includes("--session")) ?? ""));
   });
 
-  it("PI_HERDER_PI_BIN overrides the binary", () => {
+  it("PI_HERDR_PI_BIN overrides the binary", () => {
     const fx = makeFixture();
-    fx.env.PI_HERDER_PI_BIN = "/opt/custom/pi";
+    fx.env.PI_HERDR_PI_BIN = "/opt/custom/pi";
     const p = plan(fx);
     assert.equal(p.piArgv[0], "/opt/custom/pi");
     assert.ok(scriptOf(p).includes(shellEscape("/opt/custom/pi")));
@@ -234,17 +234,17 @@ describe("launch plan: exitcode sidecar and hold-open", () => {
     assert.equal(p.holdOpenSecs, 15);
   });
 
-  it("PI_HERDER_HOLD_OPEN_SECS overrides the window", () => {
+  it("PI_HERDR_HOLD_OPEN_SECS overrides the window", () => {
     const fx = makeFixture();
-    fx.env.PI_HERDER_HOLD_OPEN_SECS = "30";
+    fx.env.PI_HERDR_HOLD_OPEN_SECS = "30";
     const p = plan(fx);
     assert.ok(scriptOf(p).includes(`[ "$SECONDS" -lt 30 ]`));
     assert.equal(p.holdOpenSecs, 30);
   });
 
-  it("PI_HERDER_HOLD_OPEN_SECS=0 removes hold-open entirely", () => {
+  it("PI_HERDR_HOLD_OPEN_SECS=0 removes hold-open entirely", () => {
     const fx = makeFixture();
-    fx.env.PI_HERDER_HOLD_OPEN_SECS = "0";
+    fx.env.PI_HERDR_HOLD_OPEN_SECS = "0";
     const p = plan(fx);
     const script = scriptOf(p);
     assert.ok(!script.includes("read -r"));
@@ -401,7 +401,7 @@ describe("launch plan: structure", () => {
     const fx = makeFixture();
     assert.throws(
       () => plan(fx, { agent: "cc" }, { cli: "claude" }),
-      /not supported by pi-herder-subagents/,
+      /not supported by pi-herdr-subagents/,
     );
   });
 

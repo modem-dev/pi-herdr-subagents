@@ -22,7 +22,7 @@ import {
 // --- Helpers ---
 
 function createTestDir(): string {
-  return mkdtempSync(join(tmpdir(), "herder-session-test-"));
+  return mkdtempSync(join(tmpdir(), "herdr-session-test-"));
 }
 
 function createSessionFile(dir: string, entries: object[]): string {

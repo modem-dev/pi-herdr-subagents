@@ -1,5 +1,5 @@
 /**
- * pi-herder-subagents — interactive subagent orchestration built natively on herdr.
+ * pi-herdr-subagents — interactive subagent orchestration built natively on herdr.
  *
  * Extension entry: activation guard, tool registration, outcome→steer wiring,
  * slim widget, /subagent + /iterate commands.
@@ -54,9 +54,9 @@ const MODULE_PATH = fileURLToPath(import.meta.url);
 // from the old module keep running. Abort the previous module's controllers and
 // close its event stream on re-import (pattern from the reference, issue #5).
 
-const ABORT_KEY = Symbol.for("pi-herder-subagents/abort-controller");
-const STREAM_KEY = Symbol.for("pi-herder-subagents/event-stream");
-const WIDGET_INTERVAL_KEY = Symbol.for("pi-herder-subagents/widget-interval");
+const ABORT_KEY = Symbol.for("pi-herdr-subagents/abort-controller");
+const STREAM_KEY = Symbol.for("pi-herdr-subagents/event-stream");
+const WIDGET_INTERVAL_KEY = Symbol.for("pi-herdr-subagents/widget-interval");
 
 {
   const prevAbort = (globalThis as any)[ABORT_KEY] as AbortController | undefined;
@@ -152,12 +152,12 @@ function stopWidgetRefresh(): void {
 function updateWidget(): void {
   if (runningSubagents.size === 0) {
     stopWidgetRefresh();
-    if (latestCtx?.hasUI) latestCtx.ui.setWidget("herder-subagents", undefined);
+    if (latestCtx?.hasUI) latestCtx.ui.setWidget("herdr-subagents", undefined);
     return;
   }
   if (!latestCtx?.hasUI) return;
   latestCtx.ui.setWidget(
-    "herder-subagents",
+    "herdr-subagents",
     renderSubagentWidgetLines([...runningSubagents.values()]),
     { placement: "aboveEditor" },
   );
@@ -866,7 +866,7 @@ function registerCommands(pi: ExtensionAPI): void {
 
 // ── extension entry ─────────────────────────────────────────────────────────
 
-export default function herderSubagents(pi: ExtensionAPI) {
+export default function herdrSubagents(pi: ExtensionAPI) {
   const inHerdr = isInsideHerdr();
 
   // Tools denied via PI_DENY_TOOLS env var (set by parent agent based on frontmatter)
@@ -905,8 +905,8 @@ export default function herderSubagents(pi: ExtensionAPI) {
       const winner = pi.getAllTools().find((tool) => tool.name === "subagent");
       if (winner?.sourceInfo?.path && winner.sourceInfo.path !== MODULE_PATH) {
         ctx.ui.notify(
-          `pi-herder-subagents: another extension's "subagent" tool won the registry race ` +
-            `(${winner.sourceInfo.path}). List pi-herder-subagents BEFORE pi-interactive-subagents ` +
+          `pi-herdr-subagents: another extension's "subagent" tool won the registry race ` +
+            `(${winner.sourceInfo.path}). List pi-herdr-subagents BEFORE pi-interactive-subagents ` +
             `in your packages to use the herdr-native tools.`,
           "warning",
         );
@@ -919,7 +919,7 @@ export default function herderSubagents(pi: ExtensionAPI) {
       .then((res) => {
         if (!res.ok) {
           ctx.ui.notify(
-            "pi-herder-subagents: the herdr server is not reachable from this pane — " +
+            "pi-herdr-subagents: the herdr server is not reachable from this pane — " +
               "subagent spawns will fail. Is the herdr session still running?",
             "warning",
           );
@@ -927,7 +927,7 @@ export default function herderSubagents(pi: ExtensionAPI) {
       })
       .catch((error: any) => {
         ctx.ui.notify(
-          `pi-herder-subagents: herdr ping failed: ${error?.message ?? String(error)}`,
+          `pi-herdr-subagents: herdr ping failed: ${error?.message ?? String(error)}`,
           "warning",
         );
       });

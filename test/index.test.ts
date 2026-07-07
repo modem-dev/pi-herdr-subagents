@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-import herderSubagents, { __test__ } from "../index.ts";
+import herdrSubagents, { __test__ } from "../index.ts";
 import type { SubagentOutcome } from "../src/watcher.ts";
 
 const INDEX_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "index.ts");
@@ -21,7 +21,7 @@ const ENV_KEYS = [
   "HERDR_TAB_ID",
   "PI_DENY_TOOLS",
   "PI_SUBAGENT_AGENT",
-  "PI_HERDER_PI_BIN",
+  "PI_HERDR_PI_BIN",
   "PI_CODING_AGENT_DIR",
 ] as const;
 
@@ -188,7 +188,7 @@ async function waitFor(cond: () => boolean, ms = 2000): Promise<void> {
 // ── fixture for real-launch-plan spawns ────────────────────────────────────
 
 function makeSpawnFixture() {
-  const root = mkdtempSync(join(tmpdir(), "herder-index-"));
+  const root = mkdtempSync(join(tmpdir(), "herdr-index-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
 
   const cwd = join(root, "work");
@@ -201,7 +201,7 @@ function makeSpawnFixture() {
   writeFileSync(parentSessionFile, JSON.stringify({ type: "session", version: 3, id: "p1" }) + "\n");
 
   process.env.PI_CODING_AGENT_DIR = agentDir;
-  process.env.PI_HERDER_PI_BIN = "/usr/local/bin/pi-fake";
+  process.env.PI_HERDR_PI_BIN = "/usr/local/bin/pi-fake";
 
   const { ctx, notifications } = makeFakeCtx({
     cwd,
@@ -217,20 +217,20 @@ function makeSpawnFixture() {
 describe("index: activation guard", () => {
   it("not inside herdr → no tools registered at load", () => {
     const fake = createFakePi();
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
     assert.deepEqual(fake.toolNames(), []);
   });
 
   it("inside herdr → subagent tool registered at load", () => {
     envInsideHerdr();
     const fake = createFakePi();
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
     assert.ok(fake.toolNames().includes("subagent"));
   });
 
   it("outside herdr: session_start registers setup-hint stubs when no subagent tool exists", async () => {
     const fake = createFakePi({ allTools: [] });
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
     assert.deepEqual(fake.toolNames(), []);
 
     const { ctx } = makeFakeCtx();
@@ -247,7 +247,7 @@ describe("index: activation guard", () => {
     const fake = createFakePi({
       allTools: [{ name: "subagent", sourceInfo: { path: "/other/pi-interactive-subagents/index.ts" } }],
     });
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
     const { ctx, notifications } = makeFakeCtx();
     fake.fire("session_start", {}, ctx);
 
@@ -259,7 +259,7 @@ describe("index: activation guard", () => {
     envInsideHerdr();
     process.env.PI_DENY_TOOLS = "subagent";
     const fake = createFakePi();
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
     assert.ok(!fake.toolNames().includes("subagent"));
     // other spawning tools are gated individually, not as a block
     assert.ok(fake.toolNames().includes("subagent_interrupt"));
@@ -270,7 +270,7 @@ describe("index: activation guard", () => {
     envInsideHerdr();
     __test__.setDeps({ client: makeFakeClient() });
     const fake = createFakePi();
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
 
     fake.setAllTools([
       { name: "subagent", sourceInfo: { path: "/other/pi-interactive-subagents/index.ts" } },
@@ -280,7 +280,7 @@ describe("index: activation guard", () => {
 
     const warning = notifications.find((n) => n.type === "warning");
     assert.ok(warning, "expected a visible warning notify");
-    assert.match(warning.message, /pi-herder-subagents/);
+    assert.match(warning.message, /pi-herdr-subagents/);
     assert.match(warning.message, /before/i);
   });
 
@@ -288,7 +288,7 @@ describe("index: activation guard", () => {
     envInsideHerdr();
     __test__.setDeps({ client: makeFakeClient() });
     const fake = createFakePi();
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
 
     fake.setAllTools([{ name: "subagent", sourceInfo: { path: INDEX_PATH } }]);
     const { ctx, notifications } = makeFakeCtx();
@@ -308,7 +308,7 @@ describe("index: activation guard", () => {
       }),
     });
     const fake = createFakePi();
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
     const { ctx, notifications } = makeFakeCtx();
     fake.fire("session_start", {}, ctx);
 
@@ -323,7 +323,7 @@ describe("index: subagent tool", () => {
   function registerAndGetTool() {
     envInsideHerdr();
     const fake = createFakePi();
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
     const tool = fake.findTool("subagent");
     assert.ok(tool, "subagent tool must be registered");
     return { fake, tool };
@@ -506,7 +506,7 @@ describe("index: subagent tool", () => {
 describe("index: renderers", () => {
   it("registers subagent_result and subagent_ping renderers", () => {
     const fake = createFakePi();
-    herderSubagents(fake.api);
+    herdrSubagents(fake.api);
     assert.ok(fake.renderers.has("subagent_result"));
     assert.ok(fake.renderers.has("subagent_ping"));
   });

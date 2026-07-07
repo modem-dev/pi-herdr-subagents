@@ -12,12 +12,12 @@
 // - Env correctness for direnv/devenv repos: the script exports the
 //   orchestrator's PATH + curated PI_SUBAGENT_* vars (never a full env dump),
 //   and wraps the pi invocation in `direnv exec '<cwd>'` when the target cwd
-//   (or an ancestor) has an .envrc. Overrides: PI_HERDER_LAUNCH_PREFIX
-//   (template, `{cwd}` interpolated, empty string disables), PI_HERDER_PI_BIN,
-//   PI_HERDER_DIRENV=0.
+//   (or an ancestor) has an .envrc. Overrides: PI_HERDR_LAUNCH_PREFIX
+//   (template, `{cwd}` interpolated, empty string disables), PI_HERDR_PI_BIN,
+//   PI_HERDR_DIRENV=0.
 // - Exit code via `<sessionFile>.exitcode` sidecar (pane.exited carries no exit
 //   code and pane records vanish on exit). On startup crash (exit ≠ 0 within
-//   PI_HERDER_HOLD_OPEN_SECS, default 15) the script holds the pane open for
+//   PI_HERDR_HOLD_OPEN_SECS, default 15) the script holds the pane open for
 //   post-mortem — the sidecar, not pane.exited, is the completion signal then.
 //
 // buildSubagentToolAllowlist / buildPiPromptArgs / shellEscape and artifact
@@ -217,29 +217,29 @@ function defaultResolvePiBin(env: Record<string, string | undefined>): string {
   }
   throw new Error(
     "Could not resolve an absolute path to `pi` on PATH. " +
-      "Set PI_HERDER_PI_BIN to the pi binary (e.g. ~/.local/bin/pi).",
+      "Set PI_HERDR_PI_BIN to the pi binary (e.g. ~/.local/bin/pi).",
   );
 }
 
 /**
  * Resolve the launch-command wrapper prefix (raw shell text, "" = none).
  *
- * PI_HERDER_LAUNCH_PREFIX (if defined, even empty) replaces autodetection;
+ * PI_HERDR_LAUNCH_PREFIX (if defined, even empty) replaces autodetection;
  * `{cwd}` is interpolated shell-escaped. Otherwise `direnv exec '<cwd>'` when
- * the effective cwd has an .envrc (disable with PI_HERDER_DIRENV=0).
+ * the effective cwd has an .envrc (disable with PI_HERDR_DIRENV=0).
  */
 function resolveLaunchPrefix(env: Record<string, string | undefined>, cwd: string): string {
-  const template = env.PI_HERDER_LAUNCH_PREFIX;
+  const template = env.PI_HERDR_LAUNCH_PREFIX;
   if (template != null) {
     return template.replaceAll("{cwd}", shellEscape(cwd)).trim();
   }
-  if (env.PI_HERDER_DIRENV === "0") return "";
+  if (env.PI_HERDR_DIRENV === "0") return "";
   if (hasEnvrc(cwd)) return `direnv exec ${shellEscape(cwd)}`;
   return "";
 }
 
 function resolveHoldOpenSecs(env: Record<string, string | undefined>): number {
-  const raw = env.PI_HERDER_HOLD_OPEN_SECS?.trim();
+  const raw = env.PI_HERDR_HOLD_OPEN_SECS?.trim();
   const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_HOLD_OPEN_SECS;
 }
@@ -292,7 +292,7 @@ export function buildLaunchPlan(
   if (agentDefs?.cli && agentDefs.cli !== "pi") {
     throw new Error(
       `Agent "${params.agent ?? params.name}" uses cli: ${agentDefs.cli}, which is ` +
-        "not supported by pi-herder-subagents (pi children only).",
+        "not supported by pi-herdr-subagents (pi children only).",
     );
   }
 
@@ -356,7 +356,7 @@ export function buildLaunchPlan(
   const name = safeName(params.name);
 
   // ── pi argv ──
-  const piBin = env.PI_HERDER_PI_BIN ?? (ctx.resolvePiBin ?? defaultResolvePiBin)(env);
+  const piBin = env.PI_HERDR_PI_BIN ?? (ctx.resolvePiBin ?? defaultResolvePiBin)(env);
   const piArgv: string[] = [piBin, "--session", sessionFile];
 
   const subagentDonePath = ctx.subagentDonePath ?? join(PACKAGE_ROOT, "subagent-done.ts");
@@ -537,7 +537,7 @@ export function buildResumeLaunchPlan(
   const files: Array<{ path: string; content: string }> = [];
 
   // ── pi argv ──
-  const piBin = env.PI_HERDER_PI_BIN ?? (ctx.resolvePiBin ?? defaultResolvePiBin)(env);
+  const piBin = env.PI_HERDR_PI_BIN ?? (ctx.resolvePiBin ?? defaultResolvePiBin)(env);
   const subagentDonePath = ctx.subagentDonePath ?? join(PACKAGE_ROOT, "subagent-done.ts");
   const piArgv: string[] = [piBin, "--session", params.sessionPath, "-e", subagentDonePath];
 

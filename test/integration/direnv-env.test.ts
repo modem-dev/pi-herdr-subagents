@@ -12,7 +12,7 @@
  *      checkout: the child only runs `which`/`echo`; markers + session
  *      files live in temp dirs. Devenv cold eval can take minutes; bound
  *      by PI_TEST_TIMEOUT_DIRENV (default 300000 ms).
- *   3. PI_HERDER_DIRENV=0 escape hatch: same synthetic setup, wrapping
+ *   3. PI_HERDR_DIRENV=0 escape hatch: same synthetic setup, wrapping
  *      suppressed → no `direnv exec` in the script, var invisible to child
  *
  * No launch-race probing (delays/retries) anywhere: if a child dies we
@@ -96,7 +96,7 @@ describe(
     function makeEnvrcDir(tag: string, allow: boolean): string {
       const dir = join(ts.tmpDir, `envrc-${tag}`);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, ".envrc"), "export HERDER_ITEST_VAR=hello\n", "utf8");
+      writeFileSync(join(dir, ".envrc"), "export HERDR_ITEST_VAR=hello\n", "utf8");
       if (allow) {
         execFileSync("direnv", ["allow", dir], { stdio: "pipe" });
         envrcDirs.push(dir);
@@ -146,7 +146,7 @@ describe(
           `name: "Direnv-${id}"`,
           `agent: "test-echo"`,
           `cwd: "${cwd}"`,
-          `task: "Use the bash tool to run: echo VAL=$HERDER_ITEST_VAR > ${marker} — then call the subagent_done tool."`,
+          `task: "Use the bash tool to run: echo VAL=$HERDR_ITEST_VAR > ${marker} — then call the subagent_done tool."`,
           `Do nothing else. When a result arrives later, do NOT retry — reply NOTED.`,
         ].join("\n");
 
@@ -201,7 +201,7 @@ describe(
         // Force the real pi wrapper (the varlock path under test).
         const orch = await startOrchestrator(ts, {
           prompt,
-          env: { PI_HERDER_PI_BIN: PI_WRAPPER },
+          env: { PI_HERDR_PI_BIN: PI_WRAPPER },
         });
         const debug = scriptsDebug(orch);
 
@@ -253,10 +253,10 @@ describe(
       },
     );
 
-    // ── case 3: PI_HERDER_DIRENV=0 reaches script generation ──
+    // ── case 3: PI_HERDR_DIRENV=0 reaches script generation ──
 
     it(
-      "PI_HERDER_DIRENV=0 → no direnv exec wrap, var invisible to child",
+      "PI_HERDR_DIRENV=0 → no direnv exec wrap, var invisible to child",
       { skip: hasDirenv ? false : "direnv binary not on PATH" },
       async () => {
         const id = uniqueId();
@@ -271,13 +271,13 @@ describe(
           `name: "NoDirenv-${id}"`,
           `agent: "test-echo"`,
           `cwd: "${cwd}"`,
-          `task: "Use the bash tool to run: echo VAL=$HERDER_ITEST_VAR > ${marker} — then call the subagent_done tool."`,
+          `task: "Use the bash tool to run: echo VAL=$HERDR_ITEST_VAR > ${marker} — then call the subagent_done tool."`,
           `Do nothing else. When a result arrives later, do NOT retry — reply NOTED.`,
         ].join("\n");
 
         const orch = await startOrchestrator(ts, {
           prompt,
-          env: { PI_HERDER_DIRENV: "0" },
+          env: { PI_HERDR_DIRENV: "0" },
         });
         const debug = scriptsDebug(orch);
 
@@ -285,7 +285,7 @@ describe(
         assert.equal(
           content.trim(),
           "VAL=",
-          `with PI_HERDER_DIRENV=0 the .envrc var must NOT reach the child, got: ${content}`,
+          `with PI_HERDR_DIRENV=0 the .envrc var must NOT reach the child, got: ${content}`,
         );
 
         const [steer] = await waitForSteer(orch.sessionFile, {
@@ -303,7 +303,7 @@ describe(
         for (const script of scripts) {
           assert.ok(
             !script.content.includes("direnv exec"),
-            `PI_HERDER_DIRENV=0 must suppress the wrap in ${script.path}:\n${script.content}`,
+            `PI_HERDR_DIRENV=0 must suppress the wrap in ${script.path}:\n${script.content}`,
           );
         }
       },

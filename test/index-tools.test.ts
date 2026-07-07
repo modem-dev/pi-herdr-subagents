@@ -12,7 +12,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import herderSubagents, { __test__ } from "../index.ts";
+import herdrSubagents, { __test__ } from "../index.ts";
 import type { RunningSubagent, SubagentOutcome } from "../src/watcher.ts";
 
 // ── env management (same discipline as index.test.ts) ──────────────────────
@@ -24,7 +24,7 @@ const ENV_KEYS = [
   "HERDR_TAB_ID",
   "PI_DENY_TOOLS",
   "PI_SUBAGENT_AGENT",
-  "PI_HERDER_PI_BIN",
+  "PI_HERDR_PI_BIN",
   "PI_CODING_AGENT_DIR",
 ] as const;
 
@@ -161,7 +161,7 @@ async function waitFor(cond: () => boolean, ms = 2000): Promise<void> {
 }
 
 function makeFixture() {
-  const root = mkdtempSync(join(tmpdir(), "herder-tools-"));
+  const root = mkdtempSync(join(tmpdir(), "herdr-tools-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
 
   const cwd = join(root, "work");
@@ -172,7 +172,7 @@ function makeFixture() {
   mkdirSync(sessionDir, { recursive: true });
 
   process.env.PI_CODING_AGENT_DIR = agentDir;
-  process.env.PI_HERDER_PI_BIN = "/usr/local/bin/pi-fake";
+  process.env.PI_HERDR_PI_BIN = "/usr/local/bin/pi-fake";
 
   const { ctx, notifications } = makeFakeCtx({ cwd, sessionDir });
   return { root, cwd, agentDir, sessionDir, ctx, notifications };
@@ -224,7 +224,7 @@ function appendAssistantEntry(sessionFile: string, text: string): void {
 function registerAll() {
   envInsideHerdr();
   const fake = createFakePi();
-  herderSubagents(fake.api);
+  herdrSubagents(fake.api);
   return fake;
 }
 

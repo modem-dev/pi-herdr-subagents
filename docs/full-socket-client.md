@@ -108,7 +108,7 @@ To be filed against `ogulcancelik/herdr` when ready
 > is observable (`pane.get` returns not-found), so a socket client cannot distinguish a clean
 > exit from a crash.
 >
-> **Use case:** pi-herder-subagents launches pi subagents via `agent start … -- <argv>` and
+> **Use case:** pi-herdr-subagents launches pi subagents via `agent start … -- <argv>` and
 > classifies their lifecycle from socket events. "Exited 0" vs "exited nonzero" is the
 > difference between *completed* and *crashed / failed to launch* — e.g. a typo'd `--model`
 > makes the child exit nonzero within a second, and we want to report that truthfully. Today we

@@ -1,4 +1,4 @@
-# pi-herder-subagents
+# pi-herdr-subagents
 
 Interactive subagent orchestration for [pi](https://github.com/badlogic/pi-mono), built natively
 on [herdr](https://github.com/ogulcancelik/herdr) — spawn, resume, and interrupt subagents in
@@ -40,7 +40,7 @@ Install as a pi package (add to `~/.pi/agent/settings.json`):
 ```jsonc
 {
   "packages": [
-    "/path/to/pi-herder-subagents"   // local checkout; or a git: URL once published
+    "/path/to/pi-herdr-subagents"   // local checkout; or a git: URL once published
   ]
 }
 ```
@@ -69,13 +69,13 @@ gates the exact names `subagent`, `subagent_resume`, `subagent_interrupt`, `suba
 and existing orchestrator prompts reference those names in prose. pi resolves duplicate tool
 names **first-loaded-extension-wins, silently** — so ordering matters:
 
-> **List `pi-herder-subagents` BEFORE `pi-interactive-subagents` in `packages`.**
+> **List `pi-herdr-subagents` BEFORE `pi-interactive-subagents` in `packages`.**
 
 Behavior matrix during the transition:
 
 | pi is running… | active provider |
 |---|---|
-| inside a herdr pane | **pi-herder-subagents** (registers at load, wins the race) |
+| inside a herdr pane | **pi-herdr-subagents** (registers at load, wins the race) |
 | inside tmux/cmux/zellij/wezterm | pi-interactive-subagents (this extension stays silent) |
 | outside any mux | whichever is loaded; ours only adds setup-hint stubs if nothing else provides `subagent` |
 
@@ -93,10 +93,10 @@ All configuration is via environment variables (set globally, or per-project via
 
 | Variable | Default | Effect |
 |---|---|---|
-| `PI_HERDER_LAUNCH_PREFIX` | *(unset)* | Template for the command wrapping the child pi invocation; `{cwd}` is interpolated shell-escaped. **If defined (even empty) it replaces direnv autodetection**; empty string disables wrapping entirely. Examples: `direnv exec {cwd}` (the autodetect default), `mise exec --`, `nix develop {cwd} -c`. |
-| `PI_HERDER_PI_BIN` | first executable `pi` on `PATH` | Absolute path of the pi binary to launch children with (e.g. `~/.local/bin/pi`). |
-| `PI_HERDER_DIRENV` | *(unset)* | Set to `0` to disable the `direnv exec` autodetect (see below). |
-| `PI_HERDER_HOLD_OPEN_SECS` | `15` | Startup-crash window: if the child exits nonzero within this many seconds, the pane is held open for post-mortem (`0` disables). |
+| `PI_HERDR_LAUNCH_PREFIX` | *(unset)* | Template for the command wrapping the child pi invocation; `{cwd}` is interpolated shell-escaped. **If defined (even empty) it replaces direnv autodetection**; empty string disables wrapping entirely. Examples: `direnv exec {cwd}` (the autodetect default), `mise exec --`, `nix develop {cwd} -c`. |
+| `PI_HERDR_PI_BIN` | first executable `pi` on `PATH` | Absolute path of the pi binary to launch children with (e.g. `~/.local/bin/pi`). |
+| `PI_HERDR_DIRENV` | *(unset)* | Set to `0` to disable the `direnv exec` autodetect (see below). |
+| `PI_HERDR_HOLD_OPEN_SECS` | `15` | Startup-crash window: if the child exits nonzero within this many seconds, the pane is held open for post-mortem (`0` disables). |
 | `HERDR_BIN` | `herdr` on `PATH` | herdr binary override. |
 
 ### direnv / devenv / varlock repos
@@ -111,7 +111,7 @@ is itself a wrapper that needs in-env tools (e.g. varlock for 1Password-backed s
 runs inside that environment and just works; the extension needs zero knowledge of it. The
 whole chain — launch script → `direnv exec` → devenv PATH → pi wrapper → varlock — is covered
 by an integration test against a real devenv checkout (`test/integration/direnv-env.test.ts`).
-Set `PI_HERDER_DIRENV=0` or an explicit `PI_HERDER_LAUNCH_PREFIX` to override.
+Set `PI_HERDR_DIRENV=0` or an explicit `PI_HERDR_LAUNCH_PREFIX` to override.
 
 ## Tools & commands
 
@@ -218,7 +218,7 @@ npm run test:integration  # real pi children in an isolated named herdr session
 ```
 
 The integration harness creates its own tmux session and named herdr session
-(`herder-subagents-test-<pid>-…`), points `PI_CODING_AGENT_DIR` at a temp dir, and refuses to
+(`herdr-subagents-test-<pid>-…`), points `PI_CODING_AGENT_DIR` at a temp dir, and refuses to
 run against the default herdr socket — your live sessions and global pi config are never
 touched.
 

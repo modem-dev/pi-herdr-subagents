@@ -68,7 +68,7 @@ describe("agent-def compat spot check (ISC-5)", () => {
       () => {
         // Run from a neutral cwd so no project-local .pi/agents/ shadows the
         // global def under test.
-        const neutral = mkdtempSync(join(tmpdir(), "pi-herder-agentdefs-"));
+        const neutral = mkdtempSync(join(tmpdir(), "pi-herdr-agentdefs-"));
         try {
           process.chdir(neutral);
           const defs = loadAgentDefaults(name);
@@ -141,7 +141,7 @@ describe("agent-def compat spot check (ISC-5)", () => {
         : "no real agent defs on this machine",
     },
     () => {
-      const neutral = mkdtempSync(join(tmpdir(), "pi-herder-agentdefs-"));
+      const neutral = mkdtempSync(join(tmpdir(), "pi-herdr-agentdefs-"));
       try {
         process.chdir(neutral);
         const discovered = new Map(discoverAgentDefinitions().map((agent) => [agent.name, agent]));
@@ -158,7 +158,7 @@ describe("agent-def compat spot check (ISC-5)", () => {
   );
 
   it("project-local .pi/agents/ overrides a global def of the same name", () => {
-    const project = mkdtempSync(join(tmpdir(), "pi-herder-agentdefs-proj-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-herdr-agentdefs-proj-"));
     try {
       // Give the "global" side a controlled temp dir so the test never depends
       // on (or writes near) the developer's real config.
