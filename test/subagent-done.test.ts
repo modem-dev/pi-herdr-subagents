@@ -42,6 +42,16 @@ describe("subagent-done: shouldAutoExitOnAgentEnd", () => {
     assert.equal(shouldAutoExitOnAgentEnd(false, messages), false);
   });
 
+  it("stays open on API errors (timeout, connection failure) so pi can retry", () => {
+    const messages = [{ role: "assistant", stopReason: "error", errorMessage: "Request timed out." }];
+    assert.equal(shouldAutoExitOnAgentEnd(false, messages), false);
+  });
+
+  it("stays open on connection errors so pi can retry", () => {
+    const messages = [{ role: "assistant", stopReason: "error", errorMessage: "Connection error: WebSocket error" }];
+    assert.equal(shouldAutoExitOnAgentEnd(false, messages), false);
+  });
+
   it("defaults to exiting when no messages are available", () => {
     assert.equal(shouldAutoExitOnAgentEnd(false, undefined), true);
   });
