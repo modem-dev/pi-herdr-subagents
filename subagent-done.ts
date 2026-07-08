@@ -42,7 +42,9 @@ export function shouldAutoExitOnAgentEnd(
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg?.role === "assistant") {
-        return msg.stopReason !== "aborted";
+        // Don't auto-exit on errors (timeouts, connection failures) — let pi retry.
+        // Only exit on clean completions (stop, toolUse) or explicit abort.
+        return msg.stopReason !== "aborted" && msg.stopReason !== "error";
       }
     }
   }
