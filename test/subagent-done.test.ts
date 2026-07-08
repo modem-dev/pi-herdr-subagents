@@ -125,6 +125,98 @@ describe("subagent-done: module", () => {
   });
 });
 
+describe("subagent-done: subagent_done tool writes sidecar and shuts down", () => {
+  function makeSessionFile(): string {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-done-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    return join(dir, "child.jsonl");
+  }
+
+  it("writes done sidecar and calls shutdown when subagent_done tool is executed", async () => {
+    const sessionFile = makeSessionFile();
+    const origSession = process.env.PI_SUBAGENT_SESSION;
+    process.env.PI_SUBAGENT_SESSION = sessionFile;
+    cleanups.push(() => {
+      if (origSession !== undefined) process.env.PI_SUBAGENT_SESSION = origSession;
+      else delete process.env.PI_SUBAGENT_SESSION;
+    });
+
+    const registeredTools: Record<string, any> = {};
+    let shutdownCalled = false;
+    const fakePi = {
+      on: () => {},
+      registerTool: (tool: any) => { registeredTools[tool.name] = tool; },
+      registerShortcut: () => {},
+      getAllTools: () => [],
+    };
+    const fakeCtx = {
+      shutdown: () => { shutdownCalled = true; },
+      ui: { setWidget: () => {} },
+    };
+
+    const mod = await import("../subagent-done.ts");
+    mod.default(fakePi as any);
+
+    assert.ok(registeredTools.subagent_done, "subagent_done tool should be registered");
+    await registeredTools.subagent_done.execute("call-1", {}, null, () => {}, fakeCtx);
+
+    assert.equal(shutdownCalled, true, "should have called shutdown");
+    const sidecar = readFileSync(`${sessionFile}.exit`, "utf8");
+    assert.equal(sidecar, '{"type":"done"}', "should write done sidecar");
+  });
+});
+
+describe("subagent-done: user close without subagent_done leaves no sidecar", () => {
+  function makeSessionFile(): string {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-done-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    return join(dir, "child.jsonl");
+  }
+
+  it("no sidecar written when agent_end fires after abort (user Escape)", async () => {
+    const sessionFile = makeSessionFile();
+    const origSession = process.env.PI_SUBAGENT_SESSION;
+    const origAutoExit = process.env.PI_SUBAGENT_AUTO_EXIT;
+    process.env.PI_SUBAGENT_SESSION = sessionFile;
+    process.env.PI_SUBAGENT_AUTO_EXIT = "1";
+    cleanups.push(() => {
+      if (origSession !== undefined) process.env.PI_SUBAGENT_SESSION = origSession;
+      else delete process.env.PI_SUBAGENT_SESSION;
+      if (origAutoExit !== undefined) process.env.PI_SUBAGENT_AUTO_EXIT = origAutoExit;
+      else delete process.env.PI_SUBAGENT_AUTO_EXIT;
+    });
+
+    const handlers: Record<string, Function> = {};
+    let shutdownCalled = false;
+    const fakePi = {
+      on: (event: string, handler: Function) => { handlers[event] = handler; },
+      registerTool: () => {},
+      registerShortcut: () => {},
+      getAllTools: () => [],
+    };
+    const fakeCtx = {
+      shutdown: () => { shutdownCalled = true; },
+      ui: { setWidget: () => {} },
+    };
+
+    const mod = await import("../subagent-done.ts");
+    mod.default(fakePi as any);
+
+    handlers.session_start?.({}, fakeCtx);
+    handlers.agent_start?.();
+    // User aborts — should NOT auto-exit, no sidecar
+    handlers.agent_end?.(
+      { messages: [{ role: "assistant", stopReason: "aborted" }] },
+      fakeCtx,
+    );
+
+    assert.equal(shutdownCalled, false, "should NOT shutdown on abort");
+    let sidecarExists = false;
+    try { readFileSync(`${sessionFile}.exit`); sidecarExists = true; } catch {}
+    assert.equal(sidecarExists, false, "should NOT write sidecar on user abort");
+  });
+});
+
 describe("subagent-done: agent_end writes .exit sidecar on clean auto-exit", () => {
   function makeSessionFile(): string {
     const dir = mkdtempSync(join(tmpdir(), "herdr-done-"));
