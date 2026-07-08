@@ -118,11 +118,18 @@ const runningSubagents = new Map<string, RunningSubagent>();
 /** Latest ExtensionContext from session_start, used for widget updates. */
 let latestCtx: ExtensionContext | null = null;
 
+/** Last herdr agent_status seen per pane; refreshed opportunistically for the widget. */
+const latestAgentStatuses = new Map<string, string>();
+
 export function isInsideHerdr(env: Record<string, string | undefined> = process.env): boolean {
   return env.HERDR_ENV === "1" && !!env.HERDR_PANE_ID && !!env.HERDR_SOCKET_PATH;
 }
 
-// ── slim widget (PLAN.md Key Decision #9: name/agent/elapsed/count only) ────
+// ── polished widget (boxed, width-aware running-subagent status) ────────────
+
+type WidgetAgent = Pick<RunningSubagent, "name" | "agent" | "paneId" | "startTime"> & {
+  agentStatus?: string;
+};
 
 function formatElapsedMMSS(startTime: number, now = Date.now()): string {
   const seconds = Math.max(0, Math.floor((now - startTime) / 1000));
@@ -131,15 +138,39 @@ function formatElapsedMMSS(startTime: number, now = Date.now()): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function truncateToWidth(text: string, width: number): string {
+  if (text.length <= width) return text;
+  if (width <= 0) return "";
+  if (width === 1) return "…";
+  return `${text.slice(0, width - 1)}…`;
+}
+
 export function renderSubagentWidgetLines(
-  agents: Array<Pick<RunningSubagent, "name" | "agent" | "paneId" | "startTime">>,
+  agents: WidgetAgent[],
   now = Date.now(),
+  width = process.stdout.columns ?? 80,
 ): string[] {
-  const lines = [`Subagents — ${agents.length} running`];
+  const widgetWidth = Math.max(32, Math.floor(width));
+  const countText = `${agents.length} running`;
+  const headerLeft = "╭─ Subagents ";
+  const headerRight = ` ${countText} ─╮`;
+  const headerFill = "─".repeat(Math.max(1, widgetWidth - headerLeft.length - headerRight.length));
+  const lines = [`${headerLeft}${headerFill}${headerRight}`];
+
   for (const agent of agents) {
+    const elapsed = formatElapsedMMSS(agent.startTime, now);
     const agentTag = agent.agent ? ` (${agent.agent})` : "";
-    lines.push(`  ${formatElapsedMMSS(agent.startTime, now)}  ${agent.name}${agentTag} — pane ${agent.paneId}`);
+    const leftRaw = `${elapsed}  ${agent.name}${agentTag}`;
+    const status = agent.agentStatus?.trim() || "working";
+    const right = truncateToWidth(`${status} · ${elapsed}`, widgetWidth - 6);
+    const innerWidth = widgetWidth - 4; // borders + one space padding on each side
+    const maxLeft = Math.max(1, innerWidth - right.length - 1);
+    const left = truncateToWidth(leftRaw, maxLeft);
+    const gap = " ".repeat(Math.max(1, innerWidth - left.length - right.length));
+    lines.push(`│ ${left}${gap}${right} │`);
   }
+
+  lines.push(`╰${"─".repeat(widgetWidth - 2)}╯`);
   return lines;
 }
 
@@ -149,18 +180,46 @@ function stopWidgetRefresh(): void {
   (globalThis as any)[WIDGET_INTERVAL_KEY] = null;
 }
 
+function getWidgetAgents(): WidgetAgent[] {
+  return [...runningSubagents.values()].map((agent) => ({
+    ...agent,
+    agentStatus: latestAgentStatuses.get(agent.paneId),
+  }));
+}
+
+function setWidgetFromCurrentState(): void {
+  latestCtx?.ui.setWidget(
+    "herdr-subagents",
+    renderSubagentWidgetLines(getWidgetAgents()),
+    { placement: "aboveEditor" },
+  );
+}
+
+async function refreshWidgetStatuses(): Promise<void> {
+  try {
+    const panes = await deps.client.paneList();
+    latestAgentStatuses.clear();
+    for (const pane of panes) {
+      if (typeof pane.agent_status === "string" && pane.agent_status.trim()) {
+        latestAgentStatuses.set(pane.pane_id, pane.agent_status.trim());
+      }
+    }
+    if (runningSubagents.size > 0 && latestCtx?.hasUI) setWidgetFromCurrentState();
+  } catch {
+    // The widget is best-effort; watcher reconciliation remains the source of truth.
+  }
+}
+
 function updateWidget(): void {
   if (runningSubagents.size === 0) {
     stopWidgetRefresh();
+    latestAgentStatuses.clear();
     if (latestCtx?.hasUI) latestCtx.ui.setWidget("herdr-subagents", undefined);
     return;
   }
   if (!latestCtx?.hasUI) return;
-  latestCtx.ui.setWidget(
-    "herdr-subagents",
-    renderSubagentWidgetLines([...runningSubagents.values()]),
-    { placement: "aboveEditor" },
-  );
+  setWidgetFromCurrentState();
+  void refreshWidgetStatuses();
 }
 
 /** 1s refresh only while subagents are running; cleared at zero / shutdown / reload. */
@@ -939,6 +998,7 @@ export default function herdrSubagents(pi: ExtensionAPI) {
       running.abortController?.abort();
     }
     runningSubagents.clear();
+    latestAgentStatuses.clear();
     const stream = (globalThis as any)[STREAM_KEY] as WatcherStream | null;
     if (stream) stream.close();
     (globalThis as any)[STREAM_KEY] = null;
@@ -973,6 +1033,7 @@ export const __test__ = {
       running.abortController?.abort();
     }
     runningSubagents.clear();
+    latestAgentStatuses.clear();
     latestCtx = null;
     stopWidgetRefresh();
     const stream = (globalThis as any)[STREAM_KEY] as WatcherStream | null;

@@ -462,43 +462,57 @@ describe("index tools: subagents_list", () => {
   });
 });
 
-// ── slim widget ─────────────────────────────────────────────────────────────
+// ── polished widget ─────────────────────────────────────────────────────────
 
-describe("index tools: slim widget", () => {
+describe("index tools: polished widget", () => {
   const now = new Date("2026-07-06T12:10:00Z").getTime();
 
-  it("renders header only with zero agents", () => {
-    assert.deepEqual(__test__.renderSubagentWidgetLines([], now), ["Subagents — 0 running"]);
+  it("renders an adaptive boxed border with the running count in the header", () => {
+    const lines = __test__.renderSubagentWidgetLines([], now, 44);
+
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /^╭─ Subagents ─+ 0 running ─╮$/);
+    assert.equal(lines[1], `╰${"─".repeat(42)}╯`);
+    assert.ok(lines.every((line) => line.length === 44));
   });
 
-  it("renders one line per agent: elapsed, name, agent, pane", () => {
-    const lines = __test__.renderSubagentWidgetLines(
-      [makeRunning({ name: "Worker", agent: "worker", paneId: "w1:p4", startTime: now - 75_000 })],
-      now,
-    );
-    assert.deepEqual(lines, [
-      "Subagents — 1 running",
-      "  01:15  Worker (worker) — pane w1:p4",
-    ]);
-  });
-
-  it("renders three agents without status labels", () => {
+  it("renders rows with elapsed, name, agent, and right-aligned herdr status", () => {
     const lines = __test__.renderSubagentWidgetLines(
       [
-        makeRunning({ name: "A", agent: undefined, paneId: "p1", startTime: now - 5_000 }),
-        makeRunning({ name: "B", agent: "scout", paneId: "p2", startTime: now - 65_000 }),
-        makeRunning({ name: "C", agent: "worker", paneId: "p3", startTime: now - 3_605_000 }),
+        { ...makeRunning({ name: "A", agent: "scout", paneId: "p1", startTime: now - 5_000 }), agentStatus: "working" },
+        { ...makeRunning({ name: "Database audit", agent: "worker", paneId: "p2", startTime: now - 65_000 }), agentStatus: "blocked" },
       ],
       now,
+      64,
     );
+
     assert.equal(lines.length, 4);
-    assert.equal(lines[0], "Subagents — 3 running");
-    assert.equal(lines[1], "  00:05  A — pane p1");
-    assert.equal(lines[2], "  01:05  B (scout) — pane p2");
-    assert.equal(lines[3], "  60:05  C (worker) — pane p3");
-    for (const line of lines) {
-      assert.ok(!/stalled|starting|running…|active/.test(line), "no status labels in slim widget");
-    }
+    assert.match(lines[0], /^╭─ Subagents ─+ 2 running ─╮$/);
+    assert.match(lines[1], /^│ 00:05  A \(scout\)\s+working · 00:05 │$/);
+    assert.match(lines[2], /^│ 01:05  Database audit \(worker\)\s+blocked · 01:05 │$/);
+    assert.equal(lines[3], `╰${"─".repeat(62)}╯`);
+    assert.ok(lines.every((line) => line.length === 64));
+  });
+
+  it("adapts to narrow widths by truncating names while preserving right-aligned status", () => {
+    const lines = __test__.renderSubagentWidgetLines(
+      [
+        {
+          ...makeRunning({
+            name: "Very long subagent display name that must fit",
+            agent: "worker",
+            paneId: "p3",
+            startTime: now - 3_605_000,
+          }),
+          agentStatus: "done",
+        },
+      ],
+      now,
+      42,
+    );
+
+    assert.ok(lines.every((line) => line.length === 42));
+    assert.match(lines[1], /^│ .+…\s+done · 60:05 │$/);
   });
 });
 
