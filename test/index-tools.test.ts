@@ -57,6 +57,7 @@ function envInsideHerdr(): void {
 function createFakePi() {
   const registeredTools: any[] = [];
   const commands: Array<{ name: string; handler: Function }> = [];
+  const handlers = new Map<string, Function[]>();
   const sent: Array<{ message: any; options: any }> = [];
   const sentUser: string[] = [];
 
@@ -69,7 +70,11 @@ function createFakePi() {
     },
     registerMessageRenderer() {},
     registerShortcut() {},
-    on() {},
+    on(event: string, handler: Function) {
+      const list = handlers.get(event) ?? [];
+      list.push(handler);
+      handlers.set(event, list);
+    },
     sendMessage(message: any, options: any) {
       sent.push({ message, options });
     },
@@ -95,6 +100,9 @@ function createFakePi() {
     },
     findCommand(name: string) {
       return commands.find((c) => c.name === name);
+    },
+    fire(event: string, eventObj: unknown, ctx: unknown) {
+      for (const handler of handlers.get(event) ?? []) handler(eventObj, ctx);
     },
   };
 }
@@ -466,6 +474,74 @@ describe("index tools: subagents_list", () => {
 
 describe("index tools: polished widget", () => {
   const now = new Date("2026-07-06T12:10:00Z").getTime();
+
+  function assertLinesFitWidth(lines: string[], width: number): void {
+    assert.ok(lines.length >= 2, "widget renders at least top and bottom borders");
+    for (const line of lines) {
+      assert.equal(line.length, width, `expected ${JSON.stringify(line)} to fit ${width} cols`);
+      assert.ok(line.length <= width, `expected ${JSON.stringify(line)} not to exceed ${width} cols`);
+    }
+  }
+
+  function renderCapturedWidget(widget: any, width: number): string[] {
+    assert.equal(typeof widget, "function", "widget must be a width-aware renderer factory");
+    const rendered = widget({}, {});
+    assert.equal(typeof rendered.render, "function", "widget renderer must expose render(width)");
+    return rendered.render(width);
+  }
+
+  async function captureRunningWidget() {
+    const fake = registerAll();
+    const fx = makeFixture();
+    const widgets: Array<{ id: string; widget: any; options: any }> = [];
+    (fx.ctx as any).hasUI = true;
+    (fx.ctx as any).ui.setWidget = (id: string, widget: any, options: any) => {
+      widgets.push({ id, widget, options });
+    };
+
+    __test__.setDeps({
+      client: makeFakeClient(),
+      watch: async (_running: any, watchDeps: any): Promise<SubagentOutcome> =>
+        new Promise((resolve) => {
+          watchDeps.signal.addEventListener("abort", () => resolve({ kind: "cancelled" }), {
+            once: true,
+          });
+        }),
+      createStream: () => makeFakeStream() as any,
+    });
+
+    fake.fire("session_start", {}, fx.ctx);
+    const tool = fake.findTool("subagent");
+    await tool.execute(
+      "t1",
+      {
+        name: "Count sheep with a long enough name to need truncation",
+        task: "count sheep",
+        agent: "scout",
+      },
+      undefined,
+      undefined,
+      fx.ctx,
+    );
+
+    assert.ok(widgets.length > 0, "spawn publishes the status widget");
+    return widgets.at(-1)!;
+  }
+
+  it("publishes a width-aware widget renderer that fits a 60-column terminal", async () => {
+    const { id, widget } = await captureRunningWidget();
+
+    assert.equal(id, "herdr-subagents");
+    const lines = renderCapturedWidget(widget, 60);
+    assertLinesFitWidth(lines, 60);
+  });
+
+  it("re-renders after resize from 80 to 60 columns without overflowing", async () => {
+    const { widget } = await captureRunningWidget();
+
+    assertLinesFitWidth(renderCapturedWidget(widget, 80), 80);
+    assertLinesFitWidth(renderCapturedWidget(widget, 60), 60);
+  });
 
   it("renders an adaptive boxed border with the running count in the header", () => {
     const lines = __test__.renderSubagentWidgetLines([], now, 44);

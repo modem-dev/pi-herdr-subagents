@@ -145,32 +145,63 @@ function truncateToWidth(text: string, width: number): string {
   return `${text.slice(0, width - 1)}…`;
 }
 
+function normalizeWidgetWidth(width: number): number {
+  if (!Number.isFinite(width)) return process.stdout.columns ?? 80;
+  return Math.max(0, Math.floor(width));
+}
+
+function borderLine(left: string, right: string, width: number): string {
+  if (width <= 0) return "";
+  if (width === 1) return "│";
+
+  const innerWidth = Math.max(0, width - 2);
+  const rightWidth = right.length;
+
+  if (rightWidth >= innerWidth) {
+    return `│${truncateToWidth(right, innerWidth).padEnd(innerWidth)}│`;
+  }
+
+  const truncatedLeft = truncateToWidth(left, innerWidth - rightWidth);
+  const gap = " ".repeat(Math.max(0, innerWidth - truncatedLeft.length - rightWidth));
+  return `│${truncatedLeft}${gap}${right}│`;
+}
+
+function borderTop(title: string, info: string, width: number): string {
+  if (width <= 0) return "";
+  if (width === 1) return "╭";
+
+  const innerWidth = Math.max(0, width - 2);
+  const titlePart = `─ ${title} `;
+  const infoPart = ` ${info} ─`;
+  const fill = "─".repeat(Math.max(0, innerWidth - titlePart.length - infoPart.length));
+  const inner = `${titlePart}${fill}${infoPart}`.slice(0, innerWidth).padEnd(innerWidth, "─");
+  return `╭${inner}╮`;
+}
+
+function borderBottom(width: number): string {
+  if (width <= 0) return "";
+  if (width === 1) return "╰";
+  return `╰${"─".repeat(Math.max(0, width - 2))}╯`;
+}
+
 export function renderSubagentWidgetLines(
   agents: WidgetAgent[],
   now = Date.now(),
   width = process.stdout.columns ?? 80,
 ): string[] {
-  const widgetWidth = Math.max(32, Math.floor(width));
-  const countText = `${agents.length} running`;
-  const headerLeft = "╭─ Subagents ";
-  const headerRight = ` ${countText} ─╮`;
-  const headerFill = "─".repeat(Math.max(1, widgetWidth - headerLeft.length - headerRight.length));
-  const lines = [`${headerLeft}${headerFill}${headerRight}`];
+  const widgetWidth = normalizeWidgetWidth(width);
+  const lines = [borderTop("Subagents", `${agents.length} running`, widgetWidth)];
 
   for (const agent of agents) {
     const elapsed = formatElapsedMMSS(agent.startTime, now);
     const agentTag = agent.agent ? ` (${agent.agent})` : "";
-    const leftRaw = `${elapsed}  ${agent.name}${agentTag}`;
+    const left = ` ${elapsed}  ${agent.name}${agentTag}`;
     const status = agent.agentStatus?.trim() || "working";
-    const right = truncateToWidth(`${status} · ${elapsed}`, widgetWidth - 6);
-    const innerWidth = widgetWidth - 4; // borders + one space padding on each side
-    const maxLeft = Math.max(1, innerWidth - right.length - 1);
-    const left = truncateToWidth(leftRaw, maxLeft);
-    const gap = " ".repeat(Math.max(1, innerWidth - left.length - right.length));
-    lines.push(`│ ${left}${gap}${right} │`);
+    const right = ` ${status} · ${elapsed} `;
+    lines.push(borderLine(left, right, widgetWidth));
   }
 
-  lines.push(`╰${"─".repeat(widgetWidth - 2)}╯`);
+  lines.push(borderBottom(widgetWidth));
   return lines;
 }
 
@@ -190,7 +221,12 @@ function getWidgetAgents(): WidgetAgent[] {
 function setWidgetFromCurrentState(): void {
   latestCtx?.ui.setWidget(
     "herdr-subagents",
-    renderSubagentWidgetLines(getWidgetAgents()),
+    (_tui: unknown, _theme: unknown) => ({
+      invalidate() {},
+      render(width: number): string[] {
+        return renderSubagentWidgetLines(getWidgetAgents(), Date.now(), width);
+      },
+    }),
     { placement: "aboveEditor" },
   );
 }
