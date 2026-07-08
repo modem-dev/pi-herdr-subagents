@@ -45,7 +45,7 @@ describe("HerdrClient", () => {
       name: "worker-1",
       cwd: "/tmp/project",
       tabId: "w1:t1",
-      split: "down",
+      split: "right",
       argv: ["bash", "/tmp/launch.sh"],
     });
 
@@ -60,7 +60,7 @@ describe("HerdrClient", () => {
       "--tab",
       "w1:t1",
       "--split",
-      "down",
+      "right",
       "--no-focus",
       "--",
       "bash",

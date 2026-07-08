@@ -377,7 +377,7 @@ describe("launch plan: structure", () => {
     assert.equal(p.agentStart.cwd, fx.cwd);
     assert.equal(p.agentStart.name, "Worker");
     assert.equal(p.agentStart.tabId, "t1");
-    assert.equal(p.agentStart.split, "down");
+    assert.equal(p.agentStart.split, "right");
     assert.match(p.launchScriptFile, /subagent-scripts\/worker-abcd1234\.sh$/);
     assert.ok(p.launchScriptFile.includes(join("artifacts", "orch-session-id")));
   });

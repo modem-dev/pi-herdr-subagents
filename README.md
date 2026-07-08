@@ -204,7 +204,7 @@ Useful tricks:
   herdr's sidebar agent states are the current signal. Could be reintroduced on
   `pane.agent_status_changed`.
 - **Single-workspace topology**: children split into the orchestrator's tab
-  (`--tab $HERDR_TAB_ID --split down`); multi-workspace layouts are unexplored.
+  (`--tab $HERDR_TAB_ID --split right`); multi-workspace layouts are unexplored.
 - **Hybrid client**: request/response goes through the `herdr` CLI; only `events.subscribe`
   uses a raw socket connection. The all-socket design (and when to switch) is sketched in
   [`docs/full-socket-client.md`](docs/full-socket-client.md).
