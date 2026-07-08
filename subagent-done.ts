@@ -167,6 +167,14 @@ export default function (pi: ExtensionAPI) {
     const shouldExit = autoExit && shouldAutoExitOnAgentEnd(userTookOver, messages);
 
     if (shouldExit) {
+      // Write the .exit sidecar so the watcher classifies this as a proper
+      // completion, not a user close. Most models finish and stop talking
+      // without explicitly calling subagent_done — a clean auto-exit IS a
+      // completion.
+      const sessionFile = process.env.PI_SUBAGENT_SESSION;
+      if (sessionFile) {
+        writeExitSidecar(sessionFile, { type: "done" });
+      }
       ctx.shutdown();
       return;
     }
