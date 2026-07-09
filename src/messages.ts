@@ -236,7 +236,10 @@ export function renderSubagentResult(
       const exitCode = typeof details.exitCode === "number" ? details.exitCode : 1;
       const disposition = typeof details.disposition === "string" ? details.disposition : undefined;
       const elapsed = details.elapsed != null ? formatElapsed(details.elapsed) : "?";
-      const ok = disposition === "completed" || disposition === "completed-user-exit";
+      const ok =
+        disposition === "completed" ||
+        disposition === "completed-user-exit" ||
+        (disposition === undefined && exitCode === 0);
       const bgFn = ok
         ? (text: string) => theme.bg("toolSuccessBg", text)
         : (text: string) => theme.bg("toolErrorBg", text);
