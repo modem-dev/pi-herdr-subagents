@@ -249,4 +249,47 @@ describe("message renderers", () => {
     assert.equal(renderSubagentResult(bare as any, { expanded: false } as any, createTheme() as any), undefined);
     assert.equal(renderSubagentPing(bare as any, { expanded: false } as any, createTheme() as any), undefined);
   });
+
+  it("renders old pi-interactive-subagents steer messages (no disposition) as success", () => {
+    // Old steer messages have exitCode: 0 but no disposition field
+    const oldStyleMsg = {
+      customType: "subagent_result",
+      content: 'Sub-agent "Worker" completed (1m 5s).\n\nDid the thing.',
+      display: true,
+      details: {
+        name: "Worker",
+        agent: "worker",
+        exitCode: 0,
+        elapsed: 65,
+        sessionFile: "/tmp/sessions/child.jsonl",
+        // no disposition field — this is the key difference
+      },
+    };
+    const rendered = renderSubagentResult(oldStyleMsg as any, { expanded: false } as any, createTheme() as any);
+    assert.ok(rendered);
+    const output = rendered.render(80).join("\n");
+    assert.match(output, /✓/, "should show checkmark, not X");
+    assert.match(output, /completed/, "should show completed status");
+    assert.doesNotMatch(output, /✗/, "should NOT show failure X");
+  });
+
+  it("renders old pi-interactive-subagents failed steer messages as failure", () => {
+    const oldStyleFailMsg = {
+      customType: "subagent_result",
+      content: 'Sub-agent "Worker" failed.',
+      display: true,
+      details: {
+        name: "Worker",
+        agent: "worker",
+        exitCode: 1,
+        elapsed: 10,
+        sessionFile: "/tmp/sessions/child.jsonl",
+      },
+    };
+    const rendered = renderSubagentResult(oldStyleFailMsg as any, { expanded: false } as any, createTheme() as any);
+    assert.ok(rendered);
+    const output = rendered.render(80).join("\n");
+    assert.match(output, /✗/, "should show failure X");
+    assert.doesNotMatch(output, /✓/, "should NOT show checkmark");
+  });
 });
