@@ -1,20 +1,38 @@
 # pi-herdr-subagents
 
-Interactive subagent orchestration for [pi](https://github.com/badlogic/pi-mono), built natively
+Interactive subagent orchestration for [pi](https://github.com/earendil-works/pi), built natively
 on [herdr](https://github.com/ogulcancelik/herdr) — spawn, resume, and interrupt subagents in
 herdr panes with truthful lifecycle events. **Fully non-blocking**: the orchestrator keeps
 working while subagents run; results are steered back as async messages that wake it up.
 
-## Why herdr-native
+## Origins & credit
 
-`pi-interactive-subagents` drives four terminal muxes through their least common denominator:
-split a pane, wait a fixed delay, *type a launch command into an interactive shell*, and scrape
-the screen for a completion sentinel. Every serious reliability problem in that design — the
-direnv/devenv launch race that swallows typed commands, dead children that look "stalled"
-forever, delay/verify/retry loops — is a consequence of that open-loop mechanism
-(the war story is in [`docs/PROJECT-BRIEF.md`](docs/PROJECT-BRIEF.md)).
+This extension is a herdr-native descendant of
+[pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents) by
+[HazAT](https://github.com/HazAT). I used that extension daily for months and it completely
+changed how I structure my agent work. The orchestration model here is its design — spawn
+subagents into visible terminal surfaces, keep working, get woken by steer messages when they
+finish, resume/interrupt/list, markdown agent definitions — and several modules are direct
+ports (see [License](#license)). I've also contributed improvements upstream. If you work in
+tmux, cmux, zellij, or wezterm — or need Claude Code children — use pi-interactive-subagents;
+it's excellent.
 
-herdr has the primitives the LCD lacks. This extension uses them directly:
+## Why a separate herdr-native extension
+
+pi-interactive-subagents drives its four muxes through one generic backend mechanism: create a
+pane, wait for its interactive shell, *type a launch command into it*, verify startup with
+retries, and poll the screen for a completion sentinel. Its hardest reliability edge cases
+trace back to that open-loop mechanism — a shell still running direnv/devenv init can swallow
+the typed command, and a dead child looks like a screen that stopped changing (the war story is
+in [`docs/PROJECT-BRIEF.md`](docs/PROJECT-BRIEF.md)).
+
+To be fair: that mechanism is an implementation choice more than a hard limit of the muxes.
+tmux, zellij, and wezterm can all launch a command directly at pane creation, and sidecar files
+can replace screen scraping — pi-interactive-subagents could plausibly be retrofitted with
+per-backend launch and lifecycle adapters (cmux's currently exposed CLI is the awkward one, and
+push-style lifecycle events aren't uniformly available). But that retrofit is a substantial
+refactor multiplied across every backend and both of its launch paths. Rather than carry that
+surface area, this extension targets herdr only and uses its native primitives directly:
 
 - **argv process launch** (`herdr agent start … -- bash <script>`): the child is started as a
   direct process. No shell, no typing, no delays — **the launch race cannot happen, by
