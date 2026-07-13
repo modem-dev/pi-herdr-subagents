@@ -5,6 +5,10 @@ on [herdr](https://github.com/ogulcancelik/herdr) — spawn, resume, and interru
 herdr panes with truthful lifecycle events. **Fully non-blocking**: the orchestrator keeps
 working while subagents run; results are steered back as async messages that wake it up.
 
+## Demo
+
+https://github.com/user-attachments/assets/a016390a-4d6a-4a74-ad72-293f0d1b5c2f
+
 ## Origins & credit
 
 This extension is a herdr-native descendant of
