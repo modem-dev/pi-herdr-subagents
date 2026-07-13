@@ -264,6 +264,9 @@ function buildWrapperScript(opts: {
 
   const scriptLines = [
     "#!/usr/bin/env bash",
+    "# Ignore SIGTSTP — argv-launched panes have no parent interactive shell",
+    "# to resume from, so Ctrl+Z would leave the pane permanently stuck.",
+    "trap '' TSTP",
     ...opts.headerLines,
     ...opts.exports,
     `cd ${shellEscape(opts.cwd)}`,
