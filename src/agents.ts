@@ -8,7 +8,8 @@
 // line parser is intentionally kept (compat trumps elegance — no YAML lib).
 //
 // Adaptations vs the reference:
-// - No bundled `package` agents source (this package ships no agents/ dir).
+// - No bundled `package` source in runtime discovery; package templates must be copied into
+//   user-owned config explicitly with /subagents-init.
 // - Params typed as a plain interface instead of the extension's typebox schema.
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";

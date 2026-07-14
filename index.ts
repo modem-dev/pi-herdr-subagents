@@ -21,11 +21,15 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { constants as fsConstants, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { discoverAgentDefinitions, loadAgentDefaults } from "./src/agents.ts";
+import {
+  discoverAgentDefinitions,
+  getAgentConfigDir,
+  loadAgentDefaults,
+} from "./src/agents.ts";
 import { createHerdrClient, type HerdrClient } from "./src/herdr/client.ts";
 import { createHerdrEventStream } from "./src/herdr/events.ts";
 import {
@@ -420,6 +424,16 @@ async function executeSubagentSpawn(
     );
   }
 
+  const agentDefs = params.agent ? loadAgentDefaults(params.agent) : null;
+  if (params.agent && !agentDefs) {
+    const projectPath = join(process.cwd(), ".pi", "agents", `${params.agent}.md`);
+    const globalPath = join(getAgentConfigDir(), "agents", `${params.agent}.md`);
+    return errorResult(
+      `Agent "${params.agent}" not found. Searched ${projectPath} and ${globalPath}.`,
+      "agent not found",
+    );
+  }
+
   const parentSessionFile = ctx.sessionManager.getSessionFile();
   if (!parentSessionFile) {
     return errorResult(
@@ -427,8 +441,6 @@ async function executeSubagentSpawn(
       "no session file",
     );
   }
-
-  const agentDefs = params.agent ? loadAgentDefaults(params.agent) : null;
 
   let plan;
   try {
@@ -915,7 +927,76 @@ function registerListTool(pi: ExtensionAPI): void {
 
 // ── commands ────────────────────────────────────────────────────────────────
 
+const AGENT_TEMPLATE_FILES = ["worker.md", "planner.md", "scout.md", "reviewer.md"];
+
 function registerCommands(pi: ExtensionAPI): void {
+  // /subagents-init — copy package examples into user-owned config
+  pi.registerCommand("subagents-init", {
+    description: "Copy example subagent definitions: /subagents-init [global|project]",
+    getArgumentCompletions: (prefix) => {
+      const options = [
+        {
+          value: "global",
+          label: "global",
+          description: "copy example agent defs to ~/.pi/agent/agents",
+        },
+        {
+          value: "project",
+          label: "project",
+          description: "copy example agent defs to .pi/agents",
+        },
+      ];
+      const filtered = options.filter(({ value }) => value.startsWith(prefix));
+      return filtered.length > 0 ? filtered : null;
+    },
+    handler: async (args, ctx) => {
+      const scope = args.trim() || "global";
+      if (scope !== "global" && scope !== "project") {
+        ctx.ui.notify("Usage: /subagents-init [global|project]", "error");
+        return;
+      }
+
+      const targetDir =
+        scope === "global"
+          ? join(getAgentConfigDir(), "agents")
+          : join(ctx.cwd, ".pi", "agents");
+      const sourceDir = join(dirname(MODULE_PATH), "agents");
+      const installed: string[] = [];
+      const skipped: string[] = [];
+      mkdirSync(targetDir, { recursive: true });
+
+      for (const filename of AGENT_TEMPLATE_FILES) {
+        try {
+          copyFileSync(
+            join(sourceDir, filename),
+            join(targetDir, filename),
+            fsConstants.COPYFILE_EXCL,
+          );
+          installed.push(filename);
+        } catch (error: any) {
+          if (error?.code === "EEXIST") {
+            skipped.push(filename);
+            continue;
+          }
+          ctx.ui.notify(
+            `Failed to install ${filename} in ${targetDir}: ${error?.message ?? String(error)}`,
+            "error",
+          );
+          return;
+        }
+      }
+
+      ctx.ui.notify(
+        [
+          `Installed: ${installed.length > 0 ? installed.join(", ") : "none"}`,
+          `Skipped existing: ${skipped.length > 0 ? skipped.join(", ") : "none"}`,
+          `Target: ${targetDir}`,
+        ].join("\n"),
+        "info",
+      );
+    },
+  });
+
   // /iterate — fork the session into a subagent
   pi.registerCommand("iterate", {
     description: "Fork session into a subagent for focused work (bugfixes, iteration)",

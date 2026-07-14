@@ -76,7 +76,20 @@ pi
 ```
 
 The `subagent`, `subagent_resume`, `subagent_interrupt`, and `subagents_list` tools plus the
-`/subagent` and `/iterate` commands appear automatically.
+`/subagent`, `/subagents-init`, and `/iterate` commands appear automatically.
+
+To install the package's four example agent definitions (`worker`, `planner`, `scout`, and
+`reviewer`) as user-owned files, run:
+
+```text
+/subagents-init           # global: ~/.pi/agent/agents/
+/subagents-init project   # project-local: .pi/agents/
+```
+
+The command creates the target directory and copies only missing files. Existing files and
+symlinks are skipped, so customized definitions are never overwritten. The copies are not tied
+to the package after installation: later package updates will not replace them; run the command
+again only to install template filenames that are still missing.
 
 **Outside herdr** the extension registers nothing at load. At `session_start`, if no other
 extension provides a `subagent` tool, it registers setup-hint stubs that explain how to run pi
@@ -147,13 +160,16 @@ Set `PI_HERDR_DIRENV=0` or an explicit `PI_HERDR_LAUNCH_PREFIX` to override.
 | Command | Description |
 |---|---|
 | `/subagent <agent> [task]` | Spawn a named agent directly |
+| `/subagents-init [global\|project]` | Copy missing example agent definitions into user-owned config |
 | `/iterate [task]` | Fork the current session into a subagent for focused work |
 
-Agent definitions in `~/.pi/agent/agents/*.md` are read with the same frontmatter semantics as
-pi-interactive-subagents (name, description, tools, deny-tools, model, thinking, spawning,
-auto-exit, interactive, session-mode, systemPromptMode, …) — the same defs drive both
-extensions during the transition. A `subagent_done` / `caller_ping` child extension is loaded
-into every child for the completion handshake.
+Agent definitions in project-local `.pi/agents/*.md` or global `~/.pi/agent/agents/*.md` are read
+with the same frontmatter semantics as pi-interactive-subagents (name, description, tools,
+deny-tools, model, thinking, spawning, auto-exit, interactive, session-mode, systemPromptMode,
+…) — the same defs drive both extensions during the transition. The package templates are not a
+runtime fallback; `/subagents-init` explicitly copies them into one of these user-owned
+locations. A `subagent_done` / `caller_ping` child extension is loaded into every child for the
+completion handshake.
 
 ## Lifecycle: every child ends in exactly one honest state
 

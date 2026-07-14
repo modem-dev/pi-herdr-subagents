@@ -6,7 +6,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -493,6 +495,10 @@ describe("index tools: polished widget", () => {
   async function captureRunningWidget() {
     const fake = registerAll();
     const fx = makeFixture();
+    writeFileSync(
+      join(fx.agentDir, "agents", "scout.md"),
+      "---\nname: scout\nauto-exit: true\n---\nScout the codebase.\n",
+    );
     const widgets: Array<{ id: string; widget: any; options: any }> = [];
     (fx.ctx as any).hasUI = true;
     (fx.ctx as any).ui.setWidget = (id: string, widget: any, options: any) => {
@@ -595,6 +601,167 @@ describe("index tools: polished widget", () => {
 // ── commands ────────────────────────────────────────────────────────────────
 
 describe("index tools: commands", () => {
+  const templateNames = ["worker.md", "planner.md", "scout.md", "reviewer.md"].sort();
+
+  it("/subagents-init defaults to global and installs all four templates", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+
+    const cmd = fake.findCommand("subagents-init");
+    assert.ok(cmd, "expected /subagents-init to be registered");
+    await cmd.handler("", fx.ctx);
+
+    assert.deepEqual(readdirSync(join(fx.agentDir, "agents")).sort(), templateNames);
+    assert.equal(fx.notifications.length, 1);
+    assert.match(fx.notifications[0].message, /Installed.*worker\.md.*planner\.md.*scout\.md.*reviewer\.md/s);
+  });
+
+  it("/subagents-init global explicitly installs into PI_CODING_AGENT_DIR", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+
+    await fake.findCommand("subagents-init")!.handler("global", fx.ctx);
+
+    assert.deepEqual(readdirSync(join(fx.agentDir, "agents")).sort(), templateNames);
+    assert.equal(existsSync(join(fx.cwd, ".pi", "agents")), false);
+  });
+
+  it("/subagents-init project installs only into the command cwd", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+
+    await fake.findCommand("subagents-init")!.handler("project", fx.ctx);
+
+    assert.deepEqual(readdirSync(join(fx.cwd, ".pi", "agents")).sort(), templateNames);
+    assert.deepEqual(readdirSync(join(fx.agentDir, "agents")), []);
+  });
+
+  it("/subagents-init skips existing files and symlinks without modifying them", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+    const agentsDir = join(fx.agentDir, "agents");
+    const workerPath = join(agentsDir, "worker.md");
+    const reviewerPath = join(agentsDir, "reviewer.md");
+    const symlinkTarget = join(fx.root, "custom-reviewer.md");
+    writeFileSync(workerPath, "custom worker bytes\n");
+    writeFileSync(symlinkTarget, "custom reviewer bytes\n");
+    symlinkSync(symlinkTarget, reviewerPath);
+
+    await fake.findCommand("subagents-init")!.handler("global", fx.ctx);
+
+    assert.equal(readFileSync(workerPath, "utf8"), "custom worker bytes\n");
+    assert.equal(readFileSync(symlinkTarget, "utf8"), "custom reviewer bytes\n");
+    assert.match(fx.notifications[0].message, /Skipped.*worker\.md.*reviewer\.md/s);
+    assert.deepEqual(readdirSync(agentsDir).sort(), templateNames);
+  });
+
+  it("/subagents-init is idempotent and reports all files skipped on the second run", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+    const cmd = fake.findCommand("subagents-init")!;
+
+    await cmd.handler("global", fx.ctx);
+    const before = Object.fromEntries(
+      templateNames.map((name) => [name, readFileSync(join(fx.agentDir, "agents", name), "utf8")]),
+    );
+    await cmd.handler("global", fx.ctx);
+
+    const after = Object.fromEntries(
+      templateNames.map((name) => [name, readFileSync(join(fx.agentDir, "agents", name), "utf8")]),
+    );
+    assert.deepEqual(after, before);
+    assert.match(fx.notifications[1].message, /Skipped.*worker\.md.*planner\.md.*scout\.md.*reviewer\.md/s);
+  });
+
+  it("/subagents-init rejects invalid arguments without copying anything", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+
+    await fake.findCommand("subagents-init")!.handler("somewhere", fx.ctx);
+
+    assert.deepEqual(readdirSync(join(fx.agentDir, "agents")), []);
+    assert.equal(existsSync(join(fx.cwd, ".pi", "agents")), false);
+    assert.deepEqual(fx.notifications, [
+      { message: "Usage: /subagents-init [global|project]", type: "error" },
+    ]);
+  });
+
+  it("/subagents-init autocomplete has exact labels and prefix filtering", () => {
+    const fake = registerAll();
+    const complete = fake.findCommand("subagents-init")!.getArgumentCompletions;
+    const expected = [
+      {
+        value: "global",
+        label: "global",
+        description: "copy example agent defs to ~/.pi/agent/agents",
+      },
+      {
+        value: "project",
+        label: "project",
+        description: "copy example agent defs to .pi/agents",
+      },
+    ];
+
+    assert.deepEqual(complete(""), expected);
+    assert.deepEqual(complete("g"), [expected[0]]);
+    assert.deepEqual(complete("pro"), [expected[1]]);
+    assert.equal(complete("x"), null);
+  });
+
+  it("subagent tool rejects an explicitly named missing agent before launch", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+    let launchCount = 0;
+    __test__.setDeps({
+      client: makeFakeClient({
+        agentStart: async () => {
+          launchCount += 1;
+          return { paneId: "w1:p9", terminalId: "", workspaceId: "", tabId: "" };
+        },
+      }),
+    });
+
+    const result = await fake.findTool("subagent").execute(
+      "t1",
+      { name: "Missing", task: "do work", agent: "missing" },
+      undefined,
+      undefined,
+      fx.ctx,
+    );
+
+    assert.equal(result.details.error, "agent not found");
+    assert.match(result.content[0].text, /Agent "missing" not found/);
+    assert.match(result.content[0].text, /\.pi\/agents/);
+    assert.equal(launchCount, 0);
+  });
+
+  it("subagent tool still permits a spawn with no agent", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+    let launchCount = 0;
+    __test__.setDeps({
+      client: makeFakeClient({
+        agentStart: async () => {
+          launchCount += 1;
+          return { paneId: "w1:p9", terminalId: "", workspaceId: "", tabId: "" };
+        },
+      }),
+      watch: async (): Promise<SubagentOutcome> => ({ kind: "cancelled" }),
+      createStream: () => makeFakeStream() as any,
+    });
+
+    const result = await fake.findTool("subagent").execute(
+      "t1",
+      { name: "Generic", task: "do work" },
+      undefined,
+      undefined,
+      fx.ctx,
+    );
+
+    assert.equal(result.details.status, "started");
+    assert.equal(launchCount, 1);
+  });
+
   it("/iterate always emits a full-context fork tool call", async () => {
     const fake = registerAll();
     const iterate = fake.findCommand("iterate");
