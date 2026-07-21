@@ -42,6 +42,7 @@ import {
   renderSubagentPing,
   renderSubagentResult,
 } from "./src/messages.ts";
+import { markSubagentActive, markSubagentInactive } from "./src/runtime-state.ts";
 import { findLastAssistantMessage, getNewEntries, seedSubagentSessionFile } from "./src/session.ts";
 import {
   watchSubagent,
@@ -284,6 +285,7 @@ function armWatcher(
   moduleSignal.addEventListener("abort", onModuleAbort, { once: true });
 
   runningSubagents.set(running.id, running);
+  markSubagentActive(running.id);
   startWidgetRefresh();
 
   void deps
@@ -294,12 +296,14 @@ function armWatcher(
     })
     .then((outcome) => {
       runningSubagents.delete(running.id);
+      markSubagentInactive(running.id);
       updateWidget();
       const message = buildOutcomeMessage(running, mapOutcome ? mapOutcome(outcome) : outcome);
       if (message) pi.sendMessage(message, { triggerTurn: true, deliverAs: "steer" });
     })
     .catch((err: any) => {
       runningSubagents.delete(running.id);
+      markSubagentInactive(running.id);
       updateWidget();
       pi.sendMessage(
         {
@@ -1113,6 +1117,7 @@ export default function herdrSubagents(pi: ExtensionAPI) {
     stopWidgetRefresh();
     for (const running of runningSubagents.values()) {
       running.abortController?.abort();
+      markSubagentInactive(running.id);
     }
     runningSubagents.clear();
     latestAgentStatuses.clear();
@@ -1148,6 +1153,7 @@ export const __test__ = {
     deps = defaultDeps();
     for (const running of runningSubagents.values()) {
       running.abortController?.abort();
+      markSubagentInactive(running.id);
     }
     runningSubagents.clear();
     latestAgentStatuses.clear();

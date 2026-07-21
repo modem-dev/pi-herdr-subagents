@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import herdrSubagents, { __test__ } from "../index.ts";
+import { getActiveSubagentCount } from "../src/runtime-state.ts";
 import type { SubagentOutcome } from "../src/watcher.ts";
 
 const INDEX_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "index.ts");
@@ -429,6 +430,28 @@ describe("index: subagent tool", () => {
     assert.match(message.content, /did the thing/);
     assert.deepEqual(options, { triggerTurn: true, deliverAs: "steer" });
     assert.equal(__test__.runningSubagents.size, 0);
+  });
+
+  it("publishes the active watcher count for nested orchestrator auto-exit", async () => {
+    const { tool } = registerAndGetTool();
+    const fx = makeSpawnFixture();
+
+    let settle!: (outcome: SubagentOutcome) => void;
+    const pending = new Promise<SubagentOutcome>((resolve) => {
+      settle = resolve;
+    });
+    __test__.setDeps({
+      client: makeFakeClient(),
+      watch: async () => pending,
+      createStream: () => makeFakeStream() as any,
+    });
+
+    await tool.execute("t1", { name: "Worker", task: "do it" }, undefined, undefined, fx.ctx);
+    assert.equal(getActiveSubagentCount(), 1);
+
+    settle({ kind: "completed", summary: "done", exitCode: 0 });
+    await waitFor(() => __test__.runningSubagents.size === 0);
+    assert.equal(getActiveSubagentCount(), 0);
   });
 
   it("cancelled outcome sends no steer message", async () => {

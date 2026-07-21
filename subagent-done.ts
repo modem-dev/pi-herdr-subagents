@@ -19,6 +19,8 @@ import { Box, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "node:fs";
 
+import { getActiveSubagentCount } from "./src/runtime-state.ts";
+
 export function shouldMarkUserTookOver(agentStarted: boolean): boolean {
   return agentStarted;
 }
@@ -26,7 +28,13 @@ export function shouldMarkUserTookOver(agentStarted: boolean): boolean {
 export function shouldAutoExitOnAgentEnd(
   _userTookOver: boolean,
   messages: any[] | undefined,
+  activeSubagentCount = 0,
 ): boolean {
+  // A subagent can itself act as an orchestrator. Exiting its pi process here
+  // would abort the nested watchers, so their eventual results would have no
+  // live session to steer. Keep it open until every nested child has settled.
+  if (activeSubagentCount > 0) return false;
+
   // Manual input should not strand an auto-exit subagent. If the latest agent
   // turn completed normally, close the session. Escape/abort still leaves it
   // open for inspection or another prompt.
@@ -164,7 +172,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", (event, ctx) => {
     const messages = (event as any).messages as any[] | undefined;
-    const shouldExit = autoExit && shouldAutoExitOnAgentEnd(userTookOver, messages);
+    const shouldExit =
+      autoExit &&
+      shouldAutoExitOnAgentEnd(userTookOver, messages, getActiveSubagentCount());
 
     if (shouldExit) {
       // Write the .exit sidecar so the watcher classifies this as a proper

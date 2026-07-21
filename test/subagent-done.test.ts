@@ -10,9 +10,14 @@ import {
   shouldMarkUserTookOver,
   writeExitSidecar,
 } from "../subagent-done.ts";
+import {
+  clearActiveSubagents,
+  markSubagentActive,
+} from "../src/runtime-state.ts";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
+  clearActiveSubagents();
   while (cleanups.length > 0) cleanups.pop()!();
 });
 
@@ -78,6 +83,11 @@ describe("subagent-done: shouldAutoExitOnAgentEnd", () => {
       { role: "assistant", stopReason: "stop" },
     ];
     assert.equal(shouldAutoExitOnAgentEnd(false, messages), true);
+  });
+
+  it("stays open while nested subagents are still running", () => {
+    const messages = [{ role: "assistant", stopReason: "stop" }];
+    assert.equal(shouldAutoExitOnAgentEnd(false, messages, 2), false);
   });
 });
 
@@ -308,5 +318,46 @@ describe("subagent-done: agent_end writes .exit sidecar on clean auto-exit", () 
     let sidecarExists = false;
     try { readFileSync(`${sessionFile}.exit`); sidecarExists = true; } catch {}
     assert.equal(sidecarExists, false, "should NOT write sidecar on error");
+  });
+
+  it("does NOT auto-exit an orchestrator while nested subagents are running", async () => {
+    const sessionFile = makeSessionFile();
+    const origSession = process.env.PI_SUBAGENT_SESSION;
+    const origAutoExit = process.env.PI_SUBAGENT_AUTO_EXIT;
+    process.env.PI_SUBAGENT_SESSION = sessionFile;
+    process.env.PI_SUBAGENT_AUTO_EXIT = "1";
+    markSubagentActive("nested-1");
+    markSubagentActive("nested-2");
+    cleanups.push(() => {
+      if (origSession !== undefined) process.env.PI_SUBAGENT_SESSION = origSession;
+      else delete process.env.PI_SUBAGENT_SESSION;
+      if (origAutoExit !== undefined) process.env.PI_SUBAGENT_AUTO_EXIT = origAutoExit;
+      else delete process.env.PI_SUBAGENT_AUTO_EXIT;
+    });
+
+    const handlers: Record<string, Function> = {};
+    let shutdownCalled = false;
+    const fakePi = {
+      on: (event: string, handler: Function) => { handlers[event] = handler; },
+      registerTool: () => {},
+      registerShortcut: () => {},
+      getAllTools: () => [],
+    };
+    const fakeCtx = {
+      shutdown: () => { shutdownCalled = true; },
+      ui: { setWidget: () => {} },
+    };
+
+    const mod = await import("../subagent-done.ts");
+    mod.default(fakePi as any);
+    handlers.agent_end?.(
+      { messages: [{ role: "assistant", stopReason: "stop" }] },
+      fakeCtx,
+    );
+
+    assert.equal(shutdownCalled, false, "should keep the nested orchestrator alive");
+    let sidecarExists = false;
+    try { readFileSync(`${sessionFile}.exit`); sidecarExists = true; } catch {}
+    assert.equal(sidecarExists, false, "must not signal completion before children settle");
   });
 });
