@@ -374,6 +374,16 @@ describe("index tools: subagent_resume", () => {
     // stale sidecars from the previous run — must be gone before launch
     writeFileSync(`${sessionPath}.exit`, JSON.stringify({ type: "done" }));
     writeFileSync(`${sessionPath}.exitcode`, "0\n");
+    writeFileSync(
+      `${sessionPath}.context-usage`,
+      JSON.stringify({
+        version: 1,
+        subagentId: "previous-resume",
+        tokens: 99,
+        contextWindow: 100,
+        percent: 99,
+      }),
+    );
 
     let sidecarsAtLaunch: boolean | null = null;
     let launchedArgv: string[] | null = null;
@@ -381,7 +391,9 @@ describe("index tools: subagent_resume", () => {
       client: makeFakeClient({
         agentStart: async (p: any) => {
           sidecarsAtLaunch =
-            existsSync(`${sessionPath}.exit`) || existsSync(`${sessionPath}.exitcode`);
+            existsSync(`${sessionPath}.exit`) ||
+            existsSync(`${sessionPath}.exitcode`) ||
+            existsSync(`${sessionPath}.context-usage`);
           launchedArgv = p.argv;
           return { paneId: "w1:p7", terminalId: "", workspaceId: "", tabId: "" };
         },

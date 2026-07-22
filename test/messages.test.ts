@@ -52,6 +52,57 @@ describe("buildOutcomeMessage", () => {
     assert.equal(msg.details.disposition, "completed");
   });
 
+  it("adds terminal context usage to content and structured details", () => {
+    const running = makeRunning();
+    const contextUsage = {
+      version: 1 as const,
+      subagentId: running.id,
+      tokens: 75_000,
+      contextWindow: 200_000,
+      percent: 37.5,
+    };
+    const msg = buildOutcomeMessage(
+      running,
+      { kind: "completed", summary: "Shipped.", exitCode: 0 },
+      { now: () => running.startTime + 65_000, contextUsage },
+    );
+
+    assert.ok(msg);
+    assert.match(
+      msg.content,
+      /Context: 75,000\/200,000 tokens \(37\.5% used, 125,000 remaining\)\./,
+    );
+    assert.deepEqual(msg.details.contextUsage, contextUsage);
+
+    const rendered = renderSubagentResult(
+      msg as any,
+      { expanded: false } as any,
+      createTheme() as any,
+    );
+    assert.ok(rendered);
+    assert.match(rendered.render(80).join("\n"), /125,000 remaining/);
+  });
+
+  it("keeps unknown/null usage structured but omits a misleading visible line", () => {
+    const running = makeRunning();
+    const contextUsage = {
+      version: 1 as const,
+      subagentId: running.id,
+      tokens: null,
+      contextWindow: 200_000,
+      percent: null,
+    };
+    const msg = buildOutcomeMessage(
+      running,
+      { kind: "completed", summary: "Shipped.", exitCode: 0 },
+      { contextUsage },
+    );
+
+    assert.ok(msg);
+    assert.doesNotMatch(msg.content, /Context:/);
+    assert.deepEqual(msg.details.contextUsage, contextUsage);
+  });
+
   it("completed-user-exit → distinct honest phrasing", () => {
     const msg = build({ kind: "completed-user-exit", summary: "Last thing I said.", exitCode: 0 });
     assert.ok(msg);

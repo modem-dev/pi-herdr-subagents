@@ -19,6 +19,7 @@
 import { keyHint } from "@mariozechner/pi-coding-agent";
 import { Box, Text } from "@mariozechner/pi-tui";
 
+import type { ContextUsageSnapshot } from "./context-usage.ts";
 import type { RunningSubagent, SubagentOutcome } from "./watcher.ts";
 
 export interface SubagentSteerMessage {
@@ -39,6 +40,16 @@ function sessionRef(sessionFile: string | undefined): string {
   return sessionFile ? `\n\nSession: ${sessionFile}\nResume: pi --session ${sessionFile}` : "";
 }
 
+function contextUsageLine(usage: ContextUsageSnapshot | null | undefined): string {
+  if (usage?.tokens == null || usage.percent == null || usage.contextWindow <= 0) return "";
+
+  const remaining = Math.max(0, usage.contextWindow - usage.tokens);
+  return (
+    `\n\nContext: ${usage.tokens.toLocaleString("en-US")}/${usage.contextWindow.toLocaleString("en-US")} tokens ` +
+    `(${usage.percent}% used, ${remaining.toLocaleString("en-US")} remaining).`
+  );
+}
+
 /** Ported: completed/failed presentation with Session:/Resume: block. */
 export function resolveResultPresentation(
   result: { exitCode: number; elapsed: number; summary: string; sessionFile?: string },
@@ -57,10 +68,11 @@ export function resolveResultPresentation(
 export function buildOutcomeMessage(
   running: RunningSubagent,
   outcome: SubagentOutcome,
-  opts?: { now?: () => number },
+  opts?: { now?: () => number; contextUsage?: ContextUsageSnapshot | null },
 ): SubagentSteerMessage | null {
   const now = opts?.now ?? Date.now;
   const elapsed = Math.max(0, Math.floor((now() - running.startTime) / 1000));
+  const usageSuffix = contextUsageLine(opts?.contextUsage);
 
   const baseDetails: Record<string, unknown> = {
     name: running.name,
@@ -70,6 +82,7 @@ export function buildOutcomeMessage(
     sessionFile: running.sessionFile,
     paneId: running.paneId,
     disposition: outcome.kind,
+    ...(opts?.contextUsage ? { contextUsage: opts.contextUsage } : {}),
   };
 
   switch (outcome.kind) {
@@ -81,7 +94,7 @@ export function buildOutcomeMessage(
         customType: "subagent_ping",
         content:
           `Sub-agent "${outcome.name}" needs help (${formatElapsed(elapsed)}):\n\n` +
-          `${outcome.message}${sessionRef(running.sessionFile)}`,
+          `${outcome.message}${sessionRef(running.sessionFile)}${usageSuffix}`,
         display: true,
         details: { ...baseDetails, name: outcome.name, message: outcome.message },
       };
@@ -89,10 +102,11 @@ export function buildOutcomeMessage(
     case "completed":
       return {
         customType: "subagent_result",
-        content: resolveResultPresentation(
-          { exitCode: 0, elapsed, summary: outcome.summary, sessionFile: running.sessionFile },
-          running.name,
-        ),
+        content:
+          resolveResultPresentation(
+            { exitCode: 0, elapsed, summary: outcome.summary, sessionFile: running.sessionFile },
+            running.name,
+          ) + usageSuffix,
         display: true,
         details: { ...baseDetails, exitCode: 0, summary: outcome.summary },
       };
@@ -103,7 +117,7 @@ export function buildOutcomeMessage(
         content:
           `Sub-agent "${running.name}" exited (session closed by user, no subagent_done) ` +
           `after ${formatElapsed(elapsed)} — last message:\n\n` +
-          `${outcome.summary}${sessionRef(running.sessionFile)}`,
+          `${outcome.summary}${sessionRef(running.sessionFile)}${usageSuffix}`,
         display: true,
         details: { ...baseDetails, exitCode: 0, summary: outcome.summary },
       };
@@ -121,7 +135,7 @@ export function buildOutcomeMessage(
       ];
       return {
         customType: "subagent_result",
-        content: lines.join("\n"),
+        content: lines.join("\n") + usageSuffix,
         display: true,
         details: {
           ...baseDetails,
@@ -137,10 +151,11 @@ export function buildOutcomeMessage(
       const summary = outcome.summary ?? `Sub-agent exited with code ${outcome.exitCode}`;
       return {
         customType: "subagent_result",
-        content: resolveResultPresentation(
-          { exitCode: outcome.exitCode, elapsed, summary, sessionFile: running.sessionFile },
-          running.name,
-        ),
+        content:
+          resolveResultPresentation(
+            { exitCode: outcome.exitCode, elapsed, summary, sessionFile: running.sessionFile },
+            running.name,
+          ) + usageSuffix,
         display: true,
         details: {
           ...baseDetails,
@@ -158,7 +173,7 @@ export function buildOutcomeMessage(
         content:
           `Sub-agent "${running.name}" failed: herdr pane ${running.paneId} was ` +
           `closed before completion (killed externally, no exit recorded) — last message:\n\n` +
-          `${summary}${sessionRef(running.sessionFile)}`,
+          `${summary}${sessionRef(running.sessionFile)}${usageSuffix}`,
         display: true,
         details: { ...baseDetails, error: "pane-killed", summary: outcome.summary },
       };
@@ -171,7 +186,7 @@ export function buildOutcomeMessage(
         content:
           `Sub-agent "${running.name}" ended while the event stream was down ` +
           `(herdr pane ${running.paneId} is gone; no exit sidecars found) — last message:\n\n` +
-          `${summary}${sessionRef(running.sessionFile)}`,
+          `${summary}${sessionRef(running.sessionFile)}${usageSuffix}`,
         display: true,
         details: {
           ...baseDetails,
@@ -260,6 +275,8 @@ export function renderSubagentResult(
               .replace(/^Sub-agent "[^"]*" [^\n]*\n\n/, "");
 
       const contentLines = [header];
+      const usageLine = contextUsageLine(details.contextUsage).trim();
+      if (usageLine) contentLines.push(theme.fg("dim", usageLine));
 
       if (options.expanded) {
         if (summary) {
@@ -312,6 +329,8 @@ export function renderSubagentPing(
       const header = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${agentTag} ${theme.fg("dim", "— needs help")}`;
 
       const contentLines = [header];
+      const usageLine = contextUsageLine(details.contextUsage).trim();
+      if (usageLine) contentLines.push(theme.fg("dim", usageLine));
 
       if (options.expanded) {
         contentLines.push("");

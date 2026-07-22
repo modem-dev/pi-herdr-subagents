@@ -32,6 +32,7 @@ import {
 } from "./src/agents.ts";
 import { createHerdrClient, type HerdrClient } from "./src/herdr/client.ts";
 import { createHerdrEventStream } from "./src/herdr/events.ts";
+import { consumeContextUsageSidecar, contextUsagePath } from "./src/context-usage.ts";
 import {
   buildLaunchPlan,
   buildResumeLaunchPlan,
@@ -298,7 +299,15 @@ function armWatcher(
       runningSubagents.delete(running.id);
       markSubagentInactive(running.id);
       updateWidget();
-      const message = buildOutcomeMessage(running, mapOutcome ? mapOutcome(outcome) : outcome);
+      const contextUsage =
+        outcome.kind === "cancelled"
+          ? null
+          : consumeContextUsageSidecar(running.sessionFile, running.id);
+      const message = buildOutcomeMessage(
+        running,
+        mapOutcome ? mapOutcome(outcome) : outcome,
+        { contextUsage },
+      );
       if (message) pi.sendMessage(message, { triggerTurn: true, deliverAs: "steer" });
     })
     .catch((err: any) => {
@@ -669,6 +678,7 @@ async function executeSubagentResume(
   // would resolve the new watcher instantly.
   rmSync(`${params.sessionPath}.exit`, { force: true });
   rmSync(`${params.sessionPath}.exitcode`, { force: true });
+  rmSync(contextUsagePath(params.sessionPath), { force: true });
 
   writePlanFiles(plan.files);
 

@@ -413,23 +413,86 @@ describe("index: subagent tool", () => {
 
     __test__.setDeps({
       client: makeFakeClient(),
-      watch: async (): Promise<SubagentOutcome> => ({
-        kind: "completed",
-        summary: "did the thing",
-        exitCode: 0,
-      }),
+      watch: async (running): Promise<SubagentOutcome> => {
+        writeFileSync(
+          `${running.sessionFile}.context-usage`,
+          JSON.stringify({
+            version: 1,
+            subagentId: running.id,
+            tokens: 75_000,
+            contextWindow: 200_000,
+            percent: 37.5,
+          }),
+        );
+        return {
+          kind: "completed",
+          summary: "did the thing",
+          exitCode: 0,
+        };
+      },
       createStream: () => makeFakeStream() as any,
     });
 
-    await tool.execute("t1", { name: "Worker", task: "do it" }, undefined, undefined, fx.ctx);
+    const result = await tool.execute(
+      "t1",
+      { name: "Worker", task: "do it" },
+      undefined,
+      undefined,
+      fx.ctx,
+    );
     await waitFor(() => fake.sent.length === 1);
 
     const { message, options } = fake.sent[0];
     assert.equal(message.customType, "subagent_result");
     assert.match(message.content, /completed/);
     assert.match(message.content, /did the thing/);
+    assert.match(message.content, /Context: 75,000\/200,000 tokens/);
+    assert.deepEqual(message.details.contextUsage, {
+      version: 1,
+      subagentId: result.details.id,
+      tokens: 75_000,
+      contextWindow: 200_000,
+      percent: 37.5,
+    });
+    assert.equal(
+      existsSync(`${result.details.sessionFile}.context-usage`),
+      false,
+      "telemetry is consumed after the terminal outcome",
+    );
     assert.deepEqual(options, { triggerTurn: true, deliverAs: "steer" });
     assert.equal(__test__.runningSubagents.size, 0);
+  });
+
+  it("rejects and removes stale context usage from another resume id", async () => {
+    const { fake, tool } = registerAndGetTool();
+    const fx = makeSpawnFixture();
+
+    let telemetryPath = "";
+    __test__.setDeps({
+      client: makeFakeClient(),
+      watch: async (running): Promise<SubagentOutcome> => {
+        telemetryPath = `${running.sessionFile}.context-usage`;
+        writeFileSync(
+          telemetryPath,
+          JSON.stringify({
+            version: 1,
+            subagentId: "previous-launch-id",
+            tokens: 90_000,
+            contextWindow: 100_000,
+            percent: 90,
+          }),
+        );
+        return { kind: "completed", summary: "done", exitCode: 0 };
+      },
+      createStream: () => makeFakeStream() as any,
+    });
+
+    await tool.execute("t1", { name: "Worker", task: "do it" }, undefined, undefined, fx.ctx);
+    await waitFor(() => fake.sent.length === 1);
+
+    assert.doesNotMatch(fake.sent[0].message.content, /Context:/);
+    assert.equal("contextUsage" in fake.sent[0].message.details, false);
+    assert.equal(existsSync(telemetryPath), false, "stale telemetry is consumed");
   });
 
   it("publishes the active watcher count for nested orchestrator auto-exit", async () => {

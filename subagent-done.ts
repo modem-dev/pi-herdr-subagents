@@ -14,11 +14,12 @@
  * these shapes — {"type":"done"} and {"type":"ping","name":...,"message":...}.
  * Keep this file dependency-light: it loads into EVERY child.
  */
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ContextUsage, ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Box, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "node:fs";
 
+import { writeContextUsageSidecar } from "./src/context-usage.ts";
 import { getActiveSubagentCount } from "./src/runtime-state.ts";
 
 export function shouldMarkUserTookOver(agentStarted: boolean): boolean {
@@ -149,6 +150,34 @@ export default function (pi: ExtensionAPI) {
 
   let userTookOver = false;
   let agentStarted = false;
+  let contextUsageWritten = false;
+
+  function snapshotContextUsage(
+    ctx: { getContextUsage?: () => ContextUsage | null | undefined },
+    fallback = false,
+  ): void {
+    if (contextUsageWritten) return;
+
+    const sessionFile = process.env.PI_SUBAGENT_SESSION;
+    const id = process.env.PI_SUBAGENT_ID;
+    if (!sessionFile || !id) return;
+
+    let usage: ContextUsage | null | undefined;
+    try {
+      usage = ctx.getContextUsage?.();
+    } catch {
+      return;
+    }
+    if (usage == null) return;
+
+    try {
+      contextUsageWritten = writeContextUsageSidecar(sessionFile, id, usage, {
+        overwrite: !fallback,
+      });
+    } catch {
+      // Telemetry is best-effort and must never prevent terminal signaling.
+    }
+  }
 
   // Show widget on session start
   pi.on("session_start", (_event, ctx) => {
@@ -183,6 +212,7 @@ export default function (pi: ExtensionAPI) {
       // completion.
       const sessionFile = process.env.PI_SUBAGENT_SESSION;
       if (sessionFile) {
+        snapshotContextUsage(ctx);
         writeExitSidecar(sessionFile, { type: "done" });
       }
       ctx.shutdown();
@@ -194,6 +224,12 @@ export default function (pi: ExtensionAPI) {
       // the latest agent turn completed normally, not by who initiated it.
       userTookOver = false;
     }
+  });
+
+  // User-driven exits do not pass through a terminal tool or clean agent_end.
+  // Do not overwrite a snapshot already published by another terminal path.
+  pi.on("session_shutdown", (_event, ctx) => {
+    snapshotContextUsage(ctx, true);
   });
 
   // Toggle expand/collapse with Ctrl+J
@@ -224,6 +260,7 @@ export default function (pi: ExtensionAPI) {
         );
       }
 
+      snapshotContextUsage(ctx);
       writeExitSidecar(sessionFile, {
         type: "ping",
         name: process.env.PI_SUBAGENT_NAME ?? "subagent",
@@ -251,6 +288,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const sessionFile = process.env.PI_SUBAGENT_SESSION;
       if (sessionFile) {
+        snapshotContextUsage(ctx);
         writeExitSidecar(sessionFile, { type: "done" });
       }
       ctx.shutdown();

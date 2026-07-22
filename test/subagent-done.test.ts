@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -10,6 +10,7 @@ import {
   shouldMarkUserTookOver,
   writeExitSidecar,
 } from "../subagent-done.ts";
+import { writeContextUsageSidecar } from "../src/context-usage.ts";
 import {
   clearActiveSubagents,
   markSubagentActive,
@@ -126,6 +127,30 @@ describe("subagent-done: .exit sidecar shapes (cross-extension contract)", () =>
       '{"type":"ping","name":"Worker","message":"need input"}',
     );
   });
+
+  it("publishes context usage atomically with version and subagent id", () => {
+    const sessionFile = makeSessionFile();
+    assert.equal(
+      writeContextUsageSidecar(sessionFile, "child-1", {
+        tokens: 75_000,
+        contextWindow: 200_000,
+        percent: 37.5,
+      }),
+      true,
+    );
+    assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.context-usage`, "utf8")), {
+      version: 1,
+      subagentId: "child-1",
+      tokens: 75_000,
+      contextWindow: 200_000,
+      percent: 37.5,
+    });
+    assert.deepEqual(
+      readdirSync(join(sessionFile, "..")),
+      ["child.jsonl.context-usage"],
+      "the temporary file is renamed away",
+    );
+  });
 });
 
 describe("subagent-done: module", () => {
@@ -142,13 +167,17 @@ describe("subagent-done: subagent_done tool writes sidecar and shuts down", () =
     return join(dir, "child.jsonl");
   }
 
-  it("writes done sidecar and calls shutdown when subagent_done tool is executed", async () => {
+  it("writes usage before the exact done sidecar and shuts down", async () => {
     const sessionFile = makeSessionFile();
     const origSession = process.env.PI_SUBAGENT_SESSION;
+    const origId = process.env.PI_SUBAGENT_ID;
     process.env.PI_SUBAGENT_SESSION = sessionFile;
+    process.env.PI_SUBAGENT_ID = "child-1";
     cleanups.push(() => {
       if (origSession !== undefined) process.env.PI_SUBAGENT_SESSION = origSession;
       else delete process.env.PI_SUBAGENT_SESSION;
+      if (origId !== undefined) process.env.PI_SUBAGENT_ID = origId;
+      else delete process.env.PI_SUBAGENT_ID;
     });
 
     const registeredTools: Record<string, any> = {};
@@ -160,7 +189,12 @@ describe("subagent-done: subagent_done tool writes sidecar and shuts down", () =
       getAllTools: () => [],
     };
     const fakeCtx = {
-      shutdown: () => { shutdownCalled = true; },
+      shutdown: () => {
+        assert.ok(existsSync(`${sessionFile}.context-usage`), "usage is published before shutdown");
+        assert.ok(existsSync(`${sessionFile}.exit`), "terminal signal is published before shutdown");
+        shutdownCalled = true;
+      },
+      getContextUsage: () => ({ tokens: 75_000, contextWindow: 200_000, percent: 37.5 }),
       ui: { setWidget: () => {} },
     };
 
@@ -173,6 +207,13 @@ describe("subagent-done: subagent_done tool writes sidecar and shuts down", () =
     assert.equal(shutdownCalled, true, "should have called shutdown");
     const sidecar = readFileSync(`${sessionFile}.exit`, "utf8");
     assert.equal(sidecar, '{"type":"done"}', "should write done sidecar");
+    assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.context-usage`, "utf8")), {
+      version: 1,
+      subagentId: "child-1",
+      tokens: 75_000,
+      contextWindow: 200_000,
+      percent: 37.5,
+    });
   });
 });
 
@@ -224,6 +265,83 @@ describe("subagent-done: user close without subagent_done leaves no sidecar", ()
     let sidecarExists = false;
     try { readFileSync(`${sessionFile}.exit`); sidecarExists = true; } catch {}
     assert.equal(sidecarExists, false, "should NOT write sidecar on user abort");
+  });
+});
+
+describe("subagent-done: session_shutdown context usage fallback", () => {
+  function makeSessionFile(): string {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-done-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    return join(dir, "child.jsonl");
+  }
+
+  it("writes once on user shutdown and does not overwrite the first valid snapshot", async () => {
+    const sessionFile = makeSessionFile();
+    const origSession = process.env.PI_SUBAGENT_SESSION;
+    const origId = process.env.PI_SUBAGENT_ID;
+    process.env.PI_SUBAGENT_SESSION = sessionFile;
+    process.env.PI_SUBAGENT_ID = "child-shutdown";
+    cleanups.push(() => {
+      if (origSession === undefined) delete process.env.PI_SUBAGENT_SESSION;
+      else process.env.PI_SUBAGENT_SESSION = origSession;
+      if (origId === undefined) delete process.env.PI_SUBAGENT_ID;
+      else process.env.PI_SUBAGENT_ID = origId;
+    });
+
+    const handlers: Record<string, Function> = {};
+    const fakePi = {
+      on: (event: string, handler: Function) => { handlers[event] = handler; },
+      registerTool: () => {},
+      registerShortcut: () => {},
+      getAllTools: () => [],
+    };
+    let usage = { tokens: 10, contextWindow: 100, percent: 10 };
+    const fakeCtx = {
+      getContextUsage: () => usage,
+      ui: { setWidget: () => {} },
+    };
+
+    const mod = await import("../subagent-done.ts");
+    mod.default(fakePi as any);
+    handlers.session_shutdown?.({}, fakeCtx);
+    usage = { tokens: 90, contextWindow: 100, percent: 90 };
+    handlers.session_shutdown?.({}, fakeCtx);
+
+    assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.context-usage`, "utf8")), {
+      version: 1,
+      subagentId: "child-shutdown",
+      tokens: 10,
+      contextWindow: 100,
+      percent: 10,
+    });
+    assert.equal(existsSync(`${sessionFile}.exit`), false, "fallback does not alter terminal signals");
+  });
+
+  it("skips unavailable usage without throwing", async () => {
+    const sessionFile = makeSessionFile();
+    const origSession = process.env.PI_SUBAGENT_SESSION;
+    const origId = process.env.PI_SUBAGENT_ID;
+    process.env.PI_SUBAGENT_SESSION = sessionFile;
+    process.env.PI_SUBAGENT_ID = "child-unknown";
+    cleanups.push(() => {
+      if (origSession === undefined) delete process.env.PI_SUBAGENT_SESSION;
+      else process.env.PI_SUBAGENT_SESSION = origSession;
+      if (origId === undefined) delete process.env.PI_SUBAGENT_ID;
+      else process.env.PI_SUBAGENT_ID = origId;
+    });
+
+    const handlers: Record<string, Function> = {};
+    const fakePi = {
+      on: (event: string, handler: Function) => { handlers[event] = handler; },
+      registerTool: () => {},
+      registerShortcut: () => {},
+      getAllTools: () => [],
+    };
+    const mod = await import("../subagent-done.ts");
+    mod.default(fakePi as any);
+
+    assert.doesNotThrow(() => handlers.session_shutdown?.({}, { getContextUsage: () => undefined }));
+    assert.equal(existsSync(`${sessionFile}.context-usage`), false);
   });
 });
 
