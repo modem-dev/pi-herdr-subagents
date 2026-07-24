@@ -163,6 +163,72 @@ describe("watcher: lifecycle classification matrix", () => {
     assert.deepEqual(outcome, { kind: "ping", name: "Worker", message: "help me" });
   });
 
+  it("stamped exitcode matching our run id settles without a liveness check", async () => {
+    // The pane is deliberately still alive: with a matching id the watcher must
+    // not fall back to inferring ownership from pane liveness (that guard
+    // deletes the sidecar and misclassifies as pane-killed when teardown lags).
+    const running = makeRunning();
+    writeSession(running.sessionFile, "Quit via /quit.");
+    const fakeStream = makeFakeStream();
+    const fakeClient = makeFakeClient({ panes: [{ pane_id: running.paneId }] });
+
+    const promise = watch(running, { stream: fakeStream.stream, client: fakeClient.client });
+    writeFileSync(`${running.sessionFile}.exitcode`, `0 ${running.id}\n`);
+    const outcome = await promise;
+
+    assert.deepEqual(outcome, {
+      kind: "completed-user-exit",
+      summary: "Quit via /quit.",
+      exitCode: 0,
+    });
+  });
+
+  it("stamped exitcode from a different run is consumed, not settled", async () => {
+    const running = makeRunning();
+    writeSession(running.sessionFile, "still going");
+    const fakeStream = makeFakeStream();
+    const fakeClient = makeFakeClient({ panes: [{ pane_id: running.paneId }] });
+
+    let resolved: SubagentOutcome | null = null;
+    const promise = watch(running, { stream: fakeStream.stream, client: fakeClient.client });
+    void promise.then((o) => (resolved = o));
+
+    // A previous run's wrapper lands its sidecar on the shared session path.
+    writeFileSync(`${running.sessionFile}.exitcode`, "0 someotherrun\n");
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(resolved, null, "foreign sidecar must not settle the watch");
+    assert.equal(
+      existsSync(`${running.sessionFile}.exitcode`),
+      false,
+      "foreign sidecar should be consumed",
+    );
+
+    // Our own run then finishes normally.
+    writeFileSync(`${running.sessionFile}.exitcode`, `0 ${running.id}\n`);
+    const outcome = await promise;
+    assert.equal(outcome.kind, "completed-user-exit");
+  });
+
+  it("unstamped exitcode still uses the pane-liveness stale guard", async () => {
+    // Legacy wrapper (no id). Pane alive → treated as stale and consumed.
+    const running = makeRunning();
+    writeSession(running.sessionFile, "legacy");
+    const fakeStream = makeFakeStream();
+    const fakeClient = makeFakeClient({ panes: [{ pane_id: running.paneId }] });
+
+    let resolved: SubagentOutcome | null = null;
+    const promise = watch(running, { stream: fakeStream.stream, client: fakeClient.client });
+    void promise.then((o) => (resolved = o));
+
+    writeFileSync(`${running.sessionFile}.exitcode`, "0\n");
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(resolved, null, "legacy sidecar with a live pane is treated as stale");
+
+    fakeStream.fire(running.paneId, "pane_exited");
+    const outcome = await promise;
+    assert.equal(outcome.kind, "pane-killed");
+  });
+
   it("no .exit, exit 0, session has entries → completed-user-exit", async () => {
     const running = makeRunning();
     writeSession(running.sessionFile, "We got this far together.");

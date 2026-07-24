@@ -228,7 +228,7 @@ describe("launch plan: exitcode sidecar and hold-open", () => {
     const fx = makeFixture();
     const p = plan(fx);
     const script = scriptOf(p);
-    assert.ok(script.includes(`echo "$code" > ${shellEscape(`${p.sessionFile}.exitcode`)}`));
+    assert.ok(script.includes(`echo "$code $PI_SUBAGENT_ID" > ${shellEscape(`${p.sessionFile}.exitcode`)}`));
     assert.ok(script.includes(`[ "$code" -ne 0 ] && [ "$SECONDS" -lt 15 ]`));
     assert.ok(script.includes("read -r"));
     assert.equal(p.holdOpenSecs, 15);
@@ -251,7 +251,7 @@ describe("launch plan: exitcode sidecar and hold-open", () => {
     assert.ok(!script.includes("-lt"));
     assert.equal(p.holdOpenSecs, 0);
     // sidecar write must survive hold-open removal
-    assert.ok(script.includes(`echo "$code" > ${shellEscape(`${p.sessionFile}.exitcode`)}`));
+    assert.ok(script.includes(`echo "$code $PI_SUBAGENT_ID" > ${shellEscape(`${p.sessionFile}.exitcode`)}`));
   });
 });
 

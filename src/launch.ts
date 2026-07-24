@@ -273,7 +273,12 @@ function buildWrapperScript(opts: {
     `cd ${shellEscape(opts.cwd)}`,
     piCommand,
     'code=$?',
-    `echo "$code" > ${shellEscape(`${opts.sessionFile}.exitcode`)}`,
+    // Stamp the run id so the watcher can decide ownership of this sidecar
+    // outright. Resume reuses the session path, so a previous run's wrapper
+    // can land its sidecar after ours was cleared; without the id the watcher
+    // has to infer ownership from whether the pane is still alive, which is a
+    // race whenever pane teardown is slower than the sidecar write.
+    `echo "$code $PI_SUBAGENT_ID" > ${shellEscape(`${opts.sessionFile}.exitcode`)}`,
     ...(holdOpenSecs > 0
       ? [
           `if [ "$code" -ne 0 ] && [ "$SECONDS" -lt ${holdOpenSecs} ]; then`,

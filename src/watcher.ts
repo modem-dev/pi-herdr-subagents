@@ -139,14 +139,26 @@ export function watchSubagent(
       }
     }
 
-    function readExitCode(): number | null {
+    /**
+     * Parse the wrapper's exitcode sidecar. Current wrappers write
+     * "<code> <run id>"; wrappers from before id stamping wrote "<code>".
+     * A stamped id makes ownership decidable without inferring it from pane
+     * liveness (see the stale-sidecar guard in trySettle).
+     */
+    function readExitCode(): { code: number; id: string | null } | null {
       try {
-        const parsed = Number.parseInt(readFileSync(exitcodeFile, "utf8").trim(), 10);
-        return Number.isFinite(parsed) ? parsed : null;
+        const raw = readFileSync(exitcodeFile, "utf8").trim();
+        const [codeText, idText] = raw.split(/\s+/, 2);
+        const parsed = Number.parseInt(codeText, 10);
+        return Number.isFinite(parsed) ? { code: parsed, id: idText || null } : null;
       } catch {
         return null;
       }
     }
+
+    // Set by classify(): true when the exitcode sidecar it accepted carried our
+    // run id, so ownership is proven and the liveness guard can be skipped.
+    let exitcodeIdMatched = false;
 
     // ── classification matrix (normative — PLAN.md) ──
 
@@ -167,8 +179,18 @@ export function watchSubagent(
         };
       }
 
-      const exitCode = readExitCode();
-      if (exitCode !== null) {
+      const exitInfo = readExitCode();
+      if (exitInfo !== null) {
+        // A sidecar stamped with a different run's id is definitively not ours
+        // (resume reuses the session path). Consume it and keep watching.
+        if (exitInfo.id !== null && exitInfo.id !== running.id) {
+          try {
+            rmSync(exitcodeFile, { force: true });
+          } catch {}
+          return null;
+        }
+        exitcodeIdMatched = exitInfo.id !== null;
+        const exitCode = exitInfo.code;
         if (exitCode === 0) {
           // No .exit sidecar → the user drove the session and quit pi normally.
           return {
@@ -213,7 +235,9 @@ export function watchSubagent(
       // sidecar while OUR pane is still alive cannot be ours — consume it and
       // keep watching. (Nonzero exits pass through: hold-open keeps the pane
       // alive on purpose, and pane events/reconcile prove the pane is gone.)
-      if (outcome.kind === "completed-user-exit" && trigger === "sidecar") {
+      // Only needed for unstamped (pre-id) sidecars; a matching stamped id
+      // already proves the sidecar is ours.
+      if (outcome.kind === "completed-user-exit" && trigger === "sidecar" && !exitcodeIdMatched) {
         if (staleCheckInFlight) return;
         staleCheckInFlight = true;
         void deps.client
