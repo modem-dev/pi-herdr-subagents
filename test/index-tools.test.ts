@@ -131,9 +131,10 @@ function makeFakeCtx(overrides?: { cwd?: string; sessionDir?: string }) {
 
 function makeFakeClient(overrides?: Partial<Record<string, Function>>) {
   return {
-    async agentStart() {
+    async paneStart() {
       return { paneId: "w1:p9", terminalId: "", workspaceId: "", tabId: "" };
     },
+    async paneRename() {},
     async paneGet() {
       return null;
     },
@@ -389,7 +390,7 @@ describe("index tools: subagent_resume", () => {
     let launchedArgv: string[] | null = null;
     __test__.setDeps({
       client: makeFakeClient({
-        agentStart: async (p: any) => {
+        paneStart: async (p: any) => {
           sidecarsAtLaunch =
             existsSync(`${sessionPath}.exit`) ||
             existsSync(`${sessionPath}.exitcode`) ||
@@ -418,7 +419,7 @@ describe("index tools: subagent_resume", () => {
     assert.equal(result.details.status, "started");
     assert.equal(result.details.paneId, "w1:p7");
     assert.equal(sidecarsAtLaunch, false, "stale sidecars removed before launch");
-    assert.ok(launchedArgv, "agentStart called");
+    assert.ok(launchedArgv, "paneStart called");
     assert.equal(launchedArgv![0], "bash");
 
     const script = readFileSync(launchedArgv![1], "utf8");
@@ -726,7 +727,7 @@ describe("index tools: commands", () => {
     let launchCount = 0;
     __test__.setDeps({
       client: makeFakeClient({
-        agentStart: async () => {
+        paneStart: async () => {
           launchCount += 1;
           return { paneId: "w1:p9", terminalId: "", workspaceId: "", tabId: "" };
         },
@@ -753,7 +754,7 @@ describe("index tools: commands", () => {
     let launchCount = 0;
     __test__.setDeps({
       client: makeFakeClient({
-        agentStart: async () => {
+        paneStart: async () => {
           launchCount += 1;
           return { paneId: "w1:p9", terminalId: "", workspaceId: "", tabId: "" };
         },

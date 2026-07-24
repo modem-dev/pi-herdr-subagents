@@ -576,7 +576,7 @@ export async function startOrchestrator(
   mkdirSync(dirname(launchScript), { recursive: true });
   writeFileSync(launchScript, script, "utf8");
 
-  const started = await ts.client.agentStart({
+  const started = await ts.client.paneStart({
     name,
     cwd,
     argv: ["bash", launchScript],

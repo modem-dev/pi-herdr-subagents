@@ -1,7 +1,7 @@
 // LaunchPlan builder — agent defs + tool params → artifacts + wrapper script + agent-start argv.
 //
 // Pure planning module: no herdr calls, no subprocesses. index.ts executes the
-// plan (write plan.files, seed plan.seedSession, client.agentStart(plan.agentStart)).
+// plan (write plan.files, seed plan.seedSession, client.paneStart(plan.paneStart)).
 // The only filesystem side effect here is getDefaultSessionDirFor() creating the
 // child session directory (ported behavior from pi-interactive-subagents).
 //
@@ -93,12 +93,13 @@ export interface LaunchPlan {
     childSessionFile: string;
     childCwd: string;
   } | null;
-  /** Arguments for HerdrClient.agentStart(). */
-  agentStart: {
+  /** Arguments for HerdrClient.paneStart(). */
+  paneStart: {
     name: string;
     cwd: string;
-    tabId?: string;
-    split?: "right" | "down";
+    /** Orchestrator's own pane (HERDR_PANE_ID) — the new pane splits off it. */
+    targetPaneId?: string;
+    direction?: "right" | "down";
     argv: string[];
   };
   /** The unescaped pi invocation embedded in the wrapper script (piArgv[0] = binary). */
@@ -456,11 +457,11 @@ export function buildLaunchPlan(
     syspromptFile,
     files,
     seedSession,
-    agentStart: {
+    paneStart: {
       name: params.name,
       cwd: targetCwd,
-      tabId: env.HERDR_TAB_ID,
-      split: "right",
+      targetPaneId: env.HERDR_PANE_ID,
+      direction: "right",
       argv: ["bash", launchScriptFile],
     },
     piArgv,
@@ -501,11 +502,11 @@ export interface ResumeLaunchPlan {
   resumeMessageFile: string | null;
   /** Files the executor must write (mkdir -p dirname first). Includes the launch script. */
   files: Array<{ path: string; content: string }>;
-  agentStart: {
+  paneStart: {
     name: string;
     cwd: string;
-    tabId?: string;
-    split?: "right" | "down";
+    targetPaneId?: string;
+    direction?: "right" | "down";
     argv: string[];
   };
   piArgv: string[];
@@ -589,11 +590,11 @@ export function buildResumeLaunchPlan(
     launchScriptFile,
     resumeMessageFile,
     files,
-    agentStart: {
+    paneStart: {
       name: displayName,
       cwd: ctx.parentCwd,
-      tabId: env.HERDR_TAB_ID,
-      split: "right",
+      targetPaneId: env.HERDR_PANE_ID,
+      direction: "right",
       argv: ["bash", launchScriptFile],
     },
     piArgv,

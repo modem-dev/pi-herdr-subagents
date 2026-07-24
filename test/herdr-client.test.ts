@@ -23,44 +23,43 @@ function fakeExec(responses: Array<{ stdout?: string; stderr?: string; code?: nu
   return { exec, calls };
 }
 
-const agentStartedEnvelope = JSON.stringify({
-  id: "cli:agent:start",
+const paneSplitEnvelope = JSON.stringify({
+  id: "cli:pane:split",
   result: {
-    agent: {
+    pane: {
       pane_id: "w1:p2",
       terminal_id: "term_abc123",
       workspace_id: "w1",
       tab_id: "w1:t1",
     },
-    type: "agent_started",
+    type: "pane_info",
   },
 });
 
 describe("HerdrClient", () => {
-  it("agentStart builds correct argv", async () => {
-    const { exec, calls } = fakeExec([{ stdout: agentStartedEnvelope }]);
+  it("paneStart builds correct argv", async () => {
+    const { exec, calls } = fakeExec([{ stdout: paneSplitEnvelope }]);
     const client = createHerdrClient({ exec });
 
-    const result = await client.agentStart({
+    const result = await client.paneStart({
       name: "worker-1",
       cwd: "/tmp/project",
-      tabId: "w1:t1",
-      split: "right",
+      targetPaneId: "w1:p1",
+      direction: "right",
       argv: ["bash", "/tmp/launch.sh"],
     });
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].cmd, "herdr");
     assert.deepEqual(calls[0].args, [
-      "agent",
-      "start",
-      "worker-1",
+      "pane",
+      "split",
+      "--pane",
+      "w1:p1",
+      "--direction",
+      "right",
       "--cwd",
       "/tmp/project",
-      "--tab",
-      "w1:t1",
-      "--split",
-      "right",
       "--no-focus",
       "--",
       "bash",
@@ -74,11 +73,26 @@ describe("HerdrClient", () => {
     });
   });
 
-  it("agentStart passes env vars as --env flags", async () => {
-    const { exec, calls } = fakeExec([{ stdout: agentStartedEnvelope }]);
+  it("paneStart defaults direction right and omits --pane without a target", async () => {
+    const { exec, calls } = fakeExec([{ stdout: paneSplitEnvelope }]);
     const client = createHerdrClient({ exec });
 
-    await client.agentStart({
+    await client.paneStart({
+      name: "worker-1",
+      cwd: "/tmp/project",
+      argv: ["bash", "/tmp/launch.sh"],
+    });
+
+    const args = calls[0].args;
+    assert.equal(args.indexOf("--pane"), -1);
+    assert.equal(args[args.indexOf("--direction") + 1], "right");
+  });
+
+  it("paneStart passes env vars as --env flags", async () => {
+    const { exec, calls } = fakeExec([{ stdout: paneSplitEnvelope }]);
+    const client = createHerdrClient({ exec });
+
+    await client.paneStart({
       name: "worker-1",
       cwd: "/tmp/project",
       env: { PI_SUBAGENT_ID: "abc", FOO: "bar" },
@@ -93,6 +107,15 @@ describe("HerdrClient", () => {
     assert.equal(args[envIdx + 3], "FOO=bar");
     // env flags must come before the -- argv separator
     assert.ok(envIdx < args.indexOf("--"));
+  });
+
+  it("paneRename shells out to pane rename and only demands exit 0", async () => {
+    const { exec, calls } = fakeExec([{ stdout: "" }]);
+    const client = createHerdrClient({ exec });
+
+    await client.paneRename("w1:p2", "Worker");
+
+    assert.deepEqual(calls[0].args, ["pane", "rename", "w1:p2", "Worker"]);
   });
 
   it("error envelope surfaces code+message", async () => {

@@ -25,7 +25,7 @@ export interface PaneInfo {
   [key: string]: unknown;
 }
 
-export interface AgentStartResult {
+export interface PaneStartResult {
   paneId: string;
   terminalId: string;
   workspaceId: string;
@@ -39,14 +39,21 @@ export interface PingResult {
 }
 
 export interface HerdrClient {
-  agentStart(p: {
+  /**
+   * Create a new pane by splitting a target pane (the orchestrator's own pane
+   * via HERDR_PANE_ID) and launch an exact argv vector directly in it — no
+   * shell typing, no launch race. Requires a herdr build with pane.split
+   * command support (pane-split-argv branch / upstream discussion #1695).
+   */
+  paneStart(p: {
     name: string;
     cwd: string;
-    tabId?: string;
-    split?: "right" | "down";
+    targetPaneId?: string;
+    direction?: "right" | "down";
     env?: Record<string, string>;
     argv: string[];
-  }): Promise<AgentStartResult>;
+  }): Promise<PaneStartResult>;
+  paneRename(paneId: string, label: string): Promise<void>;
   paneGet(paneId: string): Promise<PaneInfo | null>;
   paneList(): Promise<PaneInfo[]>;
   paneClose(paneId: string): Promise<void>;
@@ -157,28 +164,35 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
   }
 
   return {
-    async agentStart(p) {
-      const args = ["agent", "start", p.name, "--cwd", p.cwd];
-      if (p.tabId) args.push("--tab", p.tabId);
-      if (p.split) args.push("--split", p.split);
+    async paneStart(p) {
+      const args = ["pane", "split"];
+      if (p.targetPaneId) args.push("--pane", p.targetPaneId);
+      args.push("--direction", p.direction ?? "right");
+      args.push("--cwd", p.cwd);
       for (const [key, value] of Object.entries(p.env ?? {})) {
         args.push("--env", `${key}=${value}`);
       }
       args.push("--no-focus", "--", ...p.argv);
 
-      const result = await execHerdrJson<{ agent?: Record<string, unknown> }>(args);
-      const agent = result.agent as
+      const result = await execHerdrJson<{ pane?: Record<string, unknown> }>(args);
+      const pane = result.pane as
         | { pane_id?: string; terminal_id?: string; workspace_id?: string; tab_id?: string }
         | undefined;
-      if (!agent?.pane_id) {
-        throw new HerdrError(`herdr agent start returned no pane id: ${JSON.stringify(result)}`);
+      if (!pane?.pane_id) {
+        throw new HerdrError(`herdr pane split returned no pane id: ${JSON.stringify(result)}`);
       }
       return {
-        paneId: agent.pane_id,
-        terminalId: agent.terminal_id ?? "",
-        workspaceId: agent.workspace_id ?? "",
-        tabId: agent.tab_id ?? "",
+        paneId: pane.pane_id,
+        terminalId: pane.terminal_id ?? "",
+        workspaceId: pane.workspace_id ?? "",
+        tabId: pane.tab_id ?? "",
       };
+    },
+
+    async paneRename(paneId, label) {
+      // Best-effort sidebar label; success is exit 0 (output shape is not
+      // relied upon so this stays compatible across herdr versions).
+      await execHerdr(["pane", "rename", paneId, label]);
     },
 
     async paneGet(paneId) {

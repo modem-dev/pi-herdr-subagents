@@ -147,9 +147,10 @@ function makeFakeCtx(overrides?: {
 
 function makeFakeClient(overrides?: Partial<Record<string, Function>>) {
   return {
-    async agentStart() {
+    async paneStart() {
       return { paneId: "w1:p9", terminalId: "term1", workspaceId: "w1", tabId: "t1" };
     },
+    async paneRename() {},
     async paneGet() {
       return null;
     },
@@ -366,13 +367,13 @@ describe("index: subagent tool", () => {
     const { tool } = registerAndGetTool();
     const fx = makeSpawnFixture();
 
-    const agentStartCalls: any[] = [];
+    const paneStartCalls: any[] = [];
     let watchedStream: unknown = null;
     const fakeStream = makeFakeStream();
     __test__.setDeps({
       client: makeFakeClient({
-        agentStart: async (p: any) => {
-          agentStartCalls.push(p);
+        paneStart: async (p: any) => {
+          paneStartCalls.push(p);
           return { paneId: "w1:p9", terminalId: "", workspaceId: "", tabId: "" };
         },
       }),
@@ -399,8 +400,8 @@ describe("index: subagent tool", () => {
     assert.match(result.content[0].text, /launched and is now running/);
 
     // argv launch through the client
-    assert.equal(agentStartCalls.length, 1);
-    assert.deepEqual(agentStartCalls[0].argv, ["bash", result.details.launchScriptFile]);
+    assert.equal(paneStartCalls.length, 1);
+    assert.deepEqual(paneStartCalls[0].argv, ["bash", result.details.launchScriptFile]);
 
     // watcher armed against the shared event stream
     await waitFor(() => watchedStream !== null);
@@ -537,13 +538,13 @@ describe("index: subagent tool", () => {
     assert.equal(fake.sent.length, 0);
   });
 
-  it("agentStart failure returns an error result and registers nothing", async () => {
+  it("paneStart failure returns an error result and registers nothing", async () => {
     const { fake, tool } = registerAndGetTool();
     const fx = makeSpawnFixture();
 
     __test__.setDeps({
       client: makeFakeClient({
-        agentStart: async () => {
+        paneStart: async () => {
           throw new Error("connection refused");
         },
       }),

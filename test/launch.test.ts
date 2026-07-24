@@ -55,7 +55,7 @@ function makeFixture(): Fixture {
   const env: Record<string, string | undefined> = {
     PATH: `${binDir}:/usr/bin:/bin`,
     PI_CODING_AGENT_DIR: agentDir,
-    HERDR_TAB_ID: "t1",
+    HERDR_PANE_ID: "w1:p1",
   };
 
   return { root, cwd, piBin, agentDir, env };
@@ -370,14 +370,14 @@ describe("launch plan: task delivery", () => {
 });
 
 describe("launch plan: structure", () => {
-  it("agent start argv is bash <launch script> with cwd/tab/split", () => {
+  it("pane start argv is bash <launch script> beside the caller pane", () => {
     const fx = makeFixture();
     const p = plan(fx, { cwd: fx.cwd });
-    assert.deepEqual(p.agentStart.argv, ["bash", p.launchScriptFile]);
-    assert.equal(p.agentStart.cwd, fx.cwd);
-    assert.equal(p.agentStart.name, "Worker");
-    assert.equal(p.agentStart.tabId, "t1");
-    assert.equal(p.agentStart.split, "right");
+    assert.deepEqual(p.paneStart.argv, ["bash", p.launchScriptFile]);
+    assert.equal(p.paneStart.cwd, fx.cwd);
+    assert.equal(p.paneStart.name, "Worker");
+    assert.equal(p.paneStart.targetPaneId, "w1:p1");
+    assert.equal(p.paneStart.direction, "right");
     assert.match(p.launchScriptFile, /subagent-scripts\/worker-abcd1234\.sh$/);
     assert.ok(p.launchScriptFile.includes(join("artifacts", "orch-session-id")));
   });
@@ -385,7 +385,7 @@ describe("launch plan: structure", () => {
   it("defaults cwd to the orchestrator cwd", () => {
     const fx = makeFixture();
     const p = plan(fx);
-    assert.equal(p.agentStart.cwd, fx.cwd);
+    assert.equal(p.paneStart.cwd, fx.cwd);
     assert.ok(scriptOf(p).includes(`cd ${shellEscape(fx.cwd)}`));
   });
 

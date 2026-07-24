@@ -384,7 +384,8 @@ const SETUP_HINT =
   "Subagents require pi to run inside a herdr pane (https://github.com/ogulcancelik/herdr). " +
   "Start herdr in your terminal, open a pane, and run pi there — herdr injects HERDR_ENV, " +
   "HERDR_PANE_ID, and HERDR_SOCKET_PATH into every pane, which this extension needs to " +
-  "launch and observe subagents. Install herdr ≥ 0.7.1 and restart pi inside it.";
+  "launch and observe subagents. Requires a herdr build with pane.split argv support " +
+  "(pane-split-argv branch; upstream discussion #1695) and restart pi inside it.";
 
 const SPAWN_TOOL_NAMES = ["subagent", "subagent_resume", "subagent_interrupt", "subagents_list"];
 
@@ -477,11 +478,13 @@ async function executeSubagentSpawn(
 
   let started;
   try {
-    started = await deps.client.agentStart(plan.agentStart);
+    started = await deps.client.paneStart(plan.paneStart);
   } catch (error: any) {
     const message = error?.message ?? String(error);
     return errorResult(`Failed to start herdr pane for "${params.name}": ${message}`, message);
   }
+  // Best-effort sidebar label; the pane is already running the subagent.
+  await deps.client.paneRename(started.paneId, params.name).catch(() => {});
 
   const running: RunningSubagent = {
     id: plan.id,
@@ -684,11 +687,13 @@ async function executeSubagentResume(
 
   let started;
   try {
-    started = await deps.client.agentStart(plan.agentStart);
+    started = await deps.client.paneStart(plan.paneStart);
   } catch (error: any) {
     const message = error?.message ?? String(error);
     return errorResult(`Failed to start herdr pane for "${plan.name}": ${message}`, message);
   }
+  // Best-effort sidebar label; the pane is already running the subagent.
+  await deps.client.paneRename(started.paneId, plan.name).catch(() => {});
 
   const running: RunningSubagent = {
     id: plan.id,
