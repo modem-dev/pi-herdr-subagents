@@ -46,6 +46,7 @@ export interface PluginInfo {
 
 export const HERDR_PLUGIN_ID = "pi-herdr-subagents";
 export const HERDR_PLUGIN_ENTRYPOINT = "subagent";
+export const HERDR_PLUGIN_ARGV_ENTRYPOINT = "argv";
 export const MIN_HERDR_VERSION = "0.8.2";
 
 export interface HerdrClient {
@@ -191,7 +192,7 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
       args.push("--cwd", p.cwd);
       for (const [key, value] of Object.entries({
         ...p.env,
-        PI_SUBAGENT_LAUNCH_SCRIPT: p.launchScriptFile,
+        PI_HERDR_LAUNCH_SCRIPT: p.launchScriptFile,
       })) {
         args.push("--env", `${key}=${value}`);
       }

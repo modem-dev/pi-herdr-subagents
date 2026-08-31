@@ -1,7 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { createHerdrClient, type ExecFn } from "../src/herdr/client.ts";
+import {
+  createHerdrClient,
+  HERDR_PLUGIN_ARGV_ENTRYPOINT,
+  type ExecFn,
+} from "../src/herdr/client.ts";
 
 interface ExecCall {
   cmd: string;
@@ -53,6 +57,7 @@ describe("HerdrClient", () => {
       launchScriptFile: "/tmp/launch.sh",
     });
 
+    assert.equal(HERDR_PLUGIN_ARGV_ENTRYPOINT, "argv");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].cmd, "herdr");
     assert.deepEqual(calls[0].args, [
@@ -72,7 +77,7 @@ describe("HerdrClient", () => {
       "--cwd",
       "/tmp/project",
       "--env",
-      "PI_SUBAGENT_LAUNCH_SCRIPT=/tmp/launch.sh",
+      "PI_HERDR_LAUNCH_SCRIPT=/tmp/launch.sh",
       "--no-focus",
     ]);
     assert.deepEqual(result, {
@@ -116,7 +121,7 @@ describe("HerdrClient", () => {
     assert.equal(args[envIdx + 2], "--env");
     assert.equal(args[envIdx + 3], "FOO=bar");
     assert.equal(args[envIdx + 4], "--env");
-    assert.equal(args[envIdx + 5], "PI_SUBAGENT_LAUNCH_SCRIPT=/tmp/launch.sh");
+    assert.equal(args[envIdx + 5], "PI_HERDR_LAUNCH_SCRIPT=/tmp/launch.sh");
   });
 
   it("pluginGet returns the requested plugin or null", async () => {

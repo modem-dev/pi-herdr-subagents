@@ -38,8 +38,8 @@ push-style lifecycle events aren't uniformly available). But that retrofit is a 
 refactor multiplied across every backend and both of its launch paths. Rather than carry that
 surface area, this extension targets herdr only and uses its native primitives directly:
 
-- **argv-backed plugin pane launch** (`herdr plugin pane open … --env
-  PI_SUBAGENT_LAUNCH_SCRIPT=<script>`): Herdr starts a fixed dispatcher which `exec`s the generated
+- **argv-backed plugin pane launch** (`herdr plugin pane open … --entrypoint subagent --env
+  PI_HERDR_LAUNCH_SCRIPT=<script>`): Herdr starts a fixed dispatcher which `exec`s the generated
   launch script. No interactive shell, typing, or delays — **the launch race cannot happen, by
   construction**. There is no verify/retry machinery because there is nothing to verify.
 - **Socket events** (`events.subscribe` → `pane.exited` / `pane.closed`): a child that dies is
@@ -101,6 +101,47 @@ The command creates the target directory and copies only missing files. Existing
 symlinks are skipped, so customized definitions are never overwritten. The copies are not tied
 to the package after installation: later package updates will not replace them; run the command
 again only to install template filenames that are still missing.
+
+## Generic argv pane contract
+
+The bundled Herdr plugin also provides a generic launcher for non-subagent consumers. Its
+contract is:
+
+- plugin id: `pi-herdr-subagents`
+- entrypoint: `argv`
+- launch-script env var: `PI_HERDR_LAUNCH_SCRIPT`
+
+Point the env var at an absolute, readable script. For example, a launch script for another TUI
+could contain:
+
+```bash
+#!/usr/bin/env bash
+trap '' TSTP
+exec /absolute/path/to/hunk
+```
+
+Open it in a pane with:
+
+```bash
+herdr plugin pane open \
+  --plugin pi-herdr-subagents \
+  --entrypoint argv \
+  --placement split \
+  --target-pane "$HERDR_PANE_ID" \
+  --direction right \
+  --cwd "$PWD" \
+  --env "PI_HERDR_LAUNCH_SCRIPT=/absolute/path/to/launch-hunk.sh" \
+  --no-focus
+```
+
+The dispatcher runs **non-interactive, non-login bash**. Use absolute paths for binaries; shell
+rc files and direnv are not loaded unless the launch script does that work itself. That clean
+startup is intentional: it avoids typing a command into a pane whose interactive shell may
+still be running direnv initialization.
+
+Launch scripts should also `trap '' TSTP`. An argv-launched pane has no parent interactive shell
+from which to run `fg`, so Ctrl+Z would otherwise suspend the command and wedge the pane
+permanently.
 
 **Outside herdr** the extension registers nothing at load. At `session_start`, if no other
 extension provides a `subagent` tool, it registers setup-hint stubs that explain how to run pi

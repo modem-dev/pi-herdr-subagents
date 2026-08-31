@@ -1,6 +1,6 @@
 id = "pi-herdr-subagents"
 name = "Pi Herdr Subagents"
-version = "0.1.0"
+version = "0.2.0"
 # v0.8.2 is the first known-good release with split plugin panes.
 min_herdr_version = "0.8.2"
 description = "Launch pi subagents in Herdr panes"
@@ -12,4 +12,10 @@ title = "Pi subagent"
 placement = "split"
 # --cwd overrides the pane's working directory, so resolve the versioned
 # dispatcher from Herdr's protected plugin-root environment and exec it.
+command = ["bash", "-c", "exec bash \"$HERDR_PLUGIN_ROOT/dispatch.sh\""]
+
+[[panes]]
+id = "argv"
+title = "Command"
+placement = "split"
 command = ["bash", "-c", "exec bash \"$HERDR_PLUGIN_ROOT/dispatch.sh\""]
