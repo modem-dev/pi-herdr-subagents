@@ -1,10 +1,10 @@
 /**
  * Integration test harness — isolated named herdr session (Task 12).
  *
- * Bootstrap recipe (verified live against herdr 0.7.1 / protocol 14):
+ * Bootstrap recipe (plugin pane flow requires herdr >= 0.8.2):
  *   1. Create a DEDICATED tmux session (the herdr client needs a TTY).
- *   2. Run `herdr --session <unique name>` in it — this starts an isolated
- *      server with its own socket under ~/.config/herdr/sessions/<name>/.
+ *   2. Run `herdr --session <unique name>` with private XDG roots — this starts
+ *      an isolated server and keeps its socket/plugin registry under a temp dir.
  *   3. Drive it headless: every CLI call runs with HERDR_SESSION=<name> and
  *      ambient HERDR_* pane vars stripped (this suite may itself run inside
  *      herdr or a pi subagent — never inherit the ambient socket).
@@ -43,7 +43,13 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createHerdrClient, type ExecFn, type HerdrClient } from "../../src/herdr/client.ts";
+import {
+  createHerdrClient,
+  HERDR_PLUGIN_ID,
+  MIN_HERDR_VERSION,
+  type ExecFn,
+  type HerdrClient,
+} from "../../src/herdr/client.ts";
 import { shellEscape } from "../../src/launch.ts";
 
 // ── paths & configuration ───────────────────────────────────────────────────
@@ -53,6 +59,7 @@ const PROJECT_ROOT = resolve(HARNESS_DIR, "../..");
 
 /** Absolute path to the extension entry in the working tree (loaded via `pi -ne -e`). */
 export const EXTENSION_SOURCE = join(PROJECT_ROOT, "index.ts");
+const HERDR_PLUGIN_DIR = join(PROJECT_ROOT, "herdr-plugin");
 
 /** Absolute herdr binary — tool-shell PATH may lack ~/.local/bin. */
 export const HERDR_BIN = process.env.HERDR_BIN ?? join(homedir(), ".local", "bin", "herdr");
@@ -76,6 +83,25 @@ export function integrationPrereqs(): { ok: boolean; reason?: string } {
     execFileSync("tmux", ["-V"], { stdio: "pipe" });
   } catch {
     return { ok: false, reason: "tmux not available" };
+  }
+  try {
+    const output = execFileSync(HERDR_BIN, ["--version"], { encoding: "utf8", stdio: "pipe" });
+    const match = /(?:^|\s)v?(\d+)\.(\d+)\.(\d+)/.exec(output);
+    const minimum = MIN_HERDR_VERSION.split(".").map(Number);
+    const actual = match?.slice(1).map(Number);
+    const supported =
+      actual != null &&
+      (actual[0] > minimum[0] ||
+        (actual[0] === minimum[0] && actual[1] > minimum[1]) ||
+        (actual[0] === minimum[0] && actual[1] === minimum[1] && actual[2] >= minimum[2]));
+    if (!supported) {
+      return {
+        ok: false,
+        reason: `herdr >= ${MIN_HERDR_VERSION} required (found ${actual?.join(".") ?? "unknown"})`,
+      };
+    }
+  } catch {
+    return { ok: false, reason: "could not determine herdr version" };
   }
   if (!existsSync(join(REAL_AGENT_DIR, "auth.json"))) {
     return { ok: false, reason: `no model auth (${join(REAL_AGENT_DIR, "auth.json")} missing)` };
@@ -378,9 +404,24 @@ export async function createTestSession(): Promise<TestSession> {
   const suffix = `${process.pid}-${Math.random().toString(36).slice(2, 7)}`;
   const sessionName = `herdr-subagents-test-${suffix}`;
   const tmuxSession = `herdr-sub-itest-${suffix}`;
-  const herdrEnv = buildHerdrEnv(sessionName);
 
-  // SAFETY interlocks before any action.
+  // Temp dirs: scratch + isolated pi and Herdr config. Plugin registration is
+  // user-global within one Herdr config, so the harness must use private XDG
+  // roots rather than touching the developer's plugin registry.
+  // Physical path (macOS tmpdir is a /var → /private/var symlink): direnv
+  // keys its allow records by the PHYSICAL .envrc path, so `direnv exec` with
+  // a logical /var cwd reports "blocked" even after `direnv allow` (live-found).
+  const tmpDir = realpathSync(mkdtempSync(join(tmpdir(), "pi-herdr-itest-")));
+  const herdrConfigHome = join(tmpDir, "herdr-config");
+  const herdrEnv = buildHerdrEnv(sessionName, {
+    ...process.env,
+    XDG_CONFIG_HOME: herdrConfigHome,
+    XDG_STATE_HOME: join(tmpDir, "herdr-state"),
+    XDG_DATA_HOME: join(tmpDir, "herdr-data"),
+    XDG_CACHE_HOME: join(tmpDir, "herdr-cache"),
+  });
+
+  // SAFETY interlocks before starting a server.
   if (!herdrEnv.HERDR_SESSION) throw new Error("SAFETY: HERDR_SESSION missing from constructed env");
   const preStatus = herdrJsonSync(herdrEnv, ["status", "server", "--json"]);
   assertIsolatedSocket(preStatus.socket ?? "", sessionName);
@@ -390,11 +431,6 @@ export async function createTestSession(): Promise<TestSession> {
     );
   }
 
-  // Temp dirs: scratch + isolated pi config with auth + SYSTEM.md + agent defs.
-  // Physical path (macOS tmpdir is a /var → /private/var symlink): direnv
-  // keys its allow records by the PHYSICAL .envrc path, so `direnv exec` with
-  // a logical /var cwd reports "blocked" even after `direnv allow` (live-found).
-  const tmpDir = realpathSync(mkdtempSync(join(tmpdir(), "pi-herdr-itest-")));
   const configDir = join(tmpDir, "pi-config");
   mkdirSync(join(configDir, "agents"), { recursive: true });
   copyFileSync(join(REAL_AGENT_DIR, "auth.json"), join(configDir, "auth.json"));
@@ -443,7 +479,7 @@ export async function createTestSession(): Promise<TestSession> {
     } catch {}
 
     // Zero-residue assertions (acceptance criteria).
-    const sessionDir = join(homedir(), ".config", "herdr", "sessions", sessionName);
+    const sessionDir = join(herdrConfigHome, "herdr", "sessions", sessionName);
     if (existsSync(sessionDir)) {
       throw new Error(`teardown residue: herdr session dir still exists: ${sessionDir}`);
     }
@@ -458,7 +494,11 @@ export async function createTestSession(): Promise<TestSession> {
     // Start the isolated herdr server via the client in the tmux pane.
     const startCmd =
       `exec env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_TAB_ID ` +
-      `-u HERDR_WORKSPACE_ID ${shellEscape(HERDR_BIN)} --session ${shellEscape(sessionName)}`;
+      `-u HERDR_WORKSPACE_ID XDG_CONFIG_HOME=${shellEscape(herdrEnv.XDG_CONFIG_HOME)} ` +
+      `XDG_STATE_HOME=${shellEscape(herdrEnv.XDG_STATE_HOME)} ` +
+      `XDG_DATA_HOME=${shellEscape(herdrEnv.XDG_DATA_HOME)} ` +
+      `XDG_CACHE_HOME=${shellEscape(herdrEnv.XDG_CACHE_HOME)} ` +
+      `${shellEscape(HERDR_BIN)} --session ${shellEscape(sessionName)}`;
     // `=name:` = exact session match + its active window (plain `=name` is not
     // a valid pane target for send-keys on tmux 3.x).
     tmux(["send-keys", "-t", `=${tmuxSession}:`, startCmd, "Enter"]);
@@ -477,6 +517,17 @@ export async function createTestSession(): Promise<TestSession> {
     assertIsolatedSocket(status.socket ?? "", sessionName);
 
     const client = createHerdrClient({ bin: HERDR_BIN, exec: herdrExecEnv(herdrEnv) });
+
+    // Link the working-tree dispatcher only in the private Herdr config. The
+    // production plugin registry and the user's running server remain untouched.
+    execFileSync(HERDR_BIN, ["plugin", "link", HERDR_PLUGIN_DIR, "--enabled"], {
+      env: herdrEnv,
+      stdio: "pipe",
+    });
+    const plugin = await client.pluginGet(HERDR_PLUGIN_ID);
+    if (!plugin?.enabled) {
+      throw new Error(`integration plugin ${HERDR_PLUGIN_ID} was not linked and enabled`);
+    }
 
     const ts: TestSession = {
       sessionName,
@@ -579,7 +630,7 @@ export async function startOrchestrator(
   const started = await ts.client.paneStart({
     name,
     cwd,
-    argv: ["bash", launchScript],
+    launchScriptFile: launchScript,
   });
   ts.trackedPanes.push(started.paneId);
   return { paneId: started.paneId, sessionFile, launchScript };
