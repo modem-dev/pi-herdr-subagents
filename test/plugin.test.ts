@@ -14,7 +14,10 @@ describe("Herdr plugin dispatcher", () => {
     assert.match(manifest, /^id = "pi-herdr-subagents"$/m);
     assert.match(manifest, /^min_herdr_version = "0\.8\.2"$/m);
     assert.match(manifest, /^id = "subagent"$/m);
-    assert.match(manifest, /^command = \["bash", "dispatch\.sh"\]$/m);
+    assert.match(
+      manifest,
+      /^command = \["bash", "-c", "exec bash \\"\$HERDR_PLUGIN_ROOT\/dispatch\.sh\\""\]$/m,
+    );
   });
 
   it("fails clearly when the launch script env is unset or unreadable", () => {
