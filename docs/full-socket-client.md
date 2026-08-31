@@ -6,20 +6,19 @@ that would remove the exit-code sidecar.
 
 ## Where we are today (the hybrid, PLAN.md Key Decision #1)
 
-- **Request/response** (`agent.start`, `pane.get`, `pane.list`, `pane.close`,
-  `pane.send_keys`, `ping`) goes through the **`herdr` CLI** as a subprocess per call, with
-  JSON envelope parsing (`src/herdr/client.ts`; pattern adapted from pi-herdr, MIT).
+- **Request/response** (`plugin.pane.open`, `plugin.list`, `pane.get`, `pane.list`,
+  `pane.close`, `pane.send_keys`, `ping`) goes through the **`herdr` CLI** as a subprocess per
+  call, with JSON envelope parsing (`src/herdr/client.ts`; pattern adapted from pi-herdr, MIT).
 - **Event subscription** uses a **raw ndJSON unix-socket connection**
   (`src/herdr/events.ts`): one process-wide `events.subscribe` for `pane.exited` +
   `pane.closed`, with reconnect + reconcile.
 
-Why the split: the herdr **0.7.1 CLI has no `events.subscribe` wrapper** — there is no
-`herdr api` subcommand in 0.7.1; that exists only in the docs-"next" tree. Subscription needs a
-persistent connection the CLI cannot provide, so the socket client exists *only* for the event
+Why the split: the released CLI has no long-lived `events.subscribe` wrapper. Subscription needs
+a persistent connection the CLI cannot provide, so the socket client exists *only* for the event
 stream, and everything else rides the CLI, which absorbs protocol drift for us.
 
-Verified protocol facts this design rests on (herdr 0.7.1, protocol 14, probed live
-2026-07-06):
+Verified socket facts this design rests on (originally probed on herdr 0.7.1 and retained with
+the herdr >= 0.8.2 plugin-pane migration):
 
 - Socket path comes from `HERDR_SOCKET_PATH`, injected into every pane (named sessions get
   per-session sockets under `~/.config/herdr/sessions/<name>/` transparently).
@@ -56,8 +55,9 @@ One persistent connection per pi process, owned by a `HerdrSocketClient`:
 
   Reconnect therefore becomes: reconnect → re-subscribe → re-snapshot → diff against watched
   panes (subsuming today's `pane list` reconcile).
-- **Typed method map** for the ~8 methods we actually use: `ping`, `session.snapshot`,
-  `agent.start`, `pane.list`, `pane.get`, `pane.close`, `pane.send_keys`, `events.subscribe`
+- **Typed method map** for the methods we actually use: `ping`, `session.snapshot`,
+  `plugin.list`, `plugin.pane.open`, `pane.list`, `pane.get`, `pane.close`, `pane.send_keys`,
+  `events.subscribe`
   (request/response/event types generated or hand-written against `herdr api schema --json`
   once the CLI ships it).
 - The `ExecFn` unit-test seam is replaced by a scripted-socket seam (we already test
@@ -108,9 +108,10 @@ To be filed against `ogulcancelik/herdr` when ready
 > is observable (`pane.get` returns not-found), so a socket client cannot distinguish a clean
 > exit from a crash.
 >
-> **Use case:** pi-herdr-subagents launches pi subagents via `agent start … -- <argv>` and
-> classifies their lifecycle from socket events. "Exited 0" vs "exited nonzero" is the
-> difference between *completed* and *crashed / failed to launch* — e.g. a typo'd `--model`
+> **Use case:** pi-herdr-subagents launches pi subagents through an argv-backed
+> `plugin.pane.open` dispatcher and classifies their lifecycle from socket events. "Exited 0" vs
+> "exited nonzero" is the difference between *completed* and *crashed / failed to launch* — e.g.
+> a typo'd `--model`
 > makes the child exit nonzero within a second, and we want to report that truthfully. Today we
 > work around it with a wrapper script that writes the exit code to a sidecar file
 > (`<session>.exitcode`), which adds a wrapper layer to what could be a plain argv launch and a
@@ -123,7 +124,7 @@ To be filed against `ogulcancelik/herdr` when ready
 > ```
 >
 > (or `exit_code: null` plus a `signal` field when the process was signal-killed). Observed on
-> herdr 0.7.1 / protocol 14.
+> herdr 0.8.2.
 
 ## References
 

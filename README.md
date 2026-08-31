@@ -38,16 +38,17 @@ push-style lifecycle events aren't uniformly available). But that retrofit is a 
 refactor multiplied across every backend and both of its launch paths. Rather than carry that
 surface area, this extension targets herdr only and uses its native primitives directly:
 
-- **argv process launch** (`herdr agent start … -- bash <script>`): the child is started as a
-  direct process. No shell, no typing, no delays — **the launch race cannot happen, by
+- **argv-backed plugin pane launch** (`herdr plugin pane open … --env
+  PI_SUBAGENT_LAUNCH_SCRIPT=<script>`): Herdr starts a fixed dispatcher which `exec`s the generated
+  launch script. No interactive shell, typing, or delays — **the launch race cannot happen, by
   construction**. There is no verify/retry machinery because there is nothing to verify.
 - **Socket events** (`events.subscribe` → `pane.exited` / `pane.closed`): a child that dies is
   an observable event within milliseconds, not a screen that stopped changing.
 
 ## Requirements
 
-- **herdr ≥ 0.7.1** (protocol 14 — pinned; the extension pings the socket at session start and
-  warns if the server is unreachable)
+- **herdr ≥ 0.8.2**, the first known-good release with split plugin panes. The extension checks
+  the running version and plugin state at session start.
 - **pi running inside a herdr pane.** herdr injects `HERDR_ENV`, `HERDR_PANE_ID`, and
   `HERDR_SOCKET_PATH` into every pane; the extension activates only when they are present.
 - **pi children only.** Claude Code / codex subagents are an explicit non-goal — if you need
@@ -66,6 +67,16 @@ Install as a pi package (add to `~/.pi/agent/settings.json`):
   ]
 }
 ```
+
+Link and enable the bundled Herdr plugin from the same checkout:
+
+```bash
+herdr plugin link /path/to/pi-herdr-subagents/herdr-plugin --enabled
+herdr plugin enable pi-herdr-subagents
+```
+
+The manifest and dispatcher are versioned with the pi extension. The dispatcher is static; each
+spawn selects its generated launch script through a pane-local environment variable.
 
 Then start herdr in your terminal and run pi in a pane:
 
@@ -188,8 +199,8 @@ eternal "stalled" zombie** — every row below terminates the running entry with
 
 ## Differences vs pi-interactive-subagents
 
-- **No launch race, by construction.** argv launch replaces type-into-shell; the shell-ready
-  delay, launch verify/retry loop, and sentinel screen polling have no analog here.
+- **No launch race, by construction.** An argv-backed plugin dispatcher replaces type-into-shell;
+  the shell-ready delay, launch verify/retry loop, and sentinel screen polling have no analog here.
 - **Truthful crash/lifecycle steers.** `pane.exited` + exit-code sidecar give immediate, honest
   launch-failure and crash reporting (a bad `--model` used to produce a silent zombie).
 - **No stall-status machinery.** The `starting/active/waiting/stalled` state machine and
@@ -241,8 +252,8 @@ Useful tricks:
 - **No stall detection** (yet): a child that is alive but spinning its wheels is not flagged;
   herdr's sidebar agent states are the current signal. Could be reintroduced on
   `pane.agent_status_changed`.
-- **Single-workspace topology**: children split into the orchestrator's tab
-  (`--tab $HERDR_TAB_ID --split right`); multi-workspace layouts are unexplored.
+- **Single-workspace topology**: children split beside the orchestrator pane
+  (`--target-pane $HERDR_PANE_ID --direction right`); multi-workspace layouts are unexplored.
 - **Hybrid client**: request/response goes through the `herdr` CLI; only `events.subscribe`
   uses a raw socket connection. The all-socket design (and when to switch) is sketched in
   [`docs/full-socket-client.md`](docs/full-socket-client.md).
@@ -256,9 +267,9 @@ npm run test:integration  # real pi children in an isolated named herdr session
 ```
 
 The integration harness creates its own tmux session and named herdr session
-(`herdr-subagents-test-<pid>-…`), points `PI_CODING_AGENT_DIR` at a temp dir, and refuses to
-run against the default herdr socket — your live sessions and global pi config are never
-touched.
+(`herdr-subagents-test-<pid>-…`), gives both Herdr and pi private temporary config roots, links
+and enables the plugin only there, and refuses to run against the default herdr socket — your
+live sessions and global Herdr/pi config are never touched.
 
 ## License
 
