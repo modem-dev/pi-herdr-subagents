@@ -98,7 +98,7 @@ describe(
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, ".envrc"), "export HERDR_ITEST_VAR=hello\n", "utf8");
       if (allow) {
-        execFileSync("direnv", ["allow", dir], { stdio: "pipe" });
+        execFileSync("direnv", ["allow", dir], { env: ts.herdrEnv, stdio: "pipe" });
         envrcDirs.push(dir);
       }
       return dir;
@@ -121,11 +121,11 @@ describe(
     });
 
     after(async () => {
-      // Revoke the allow records this suite created (zero residue in
-      // ~/.local/share/direnv); the dirs themselves die with ts.tmpDir.
+      // Revoke the allow records this suite created in the isolated XDG data
+      // root; the records and envrc dirs also die with ts.tmpDir.
       for (const dir of envrcDirs.splice(0)) {
         try {
-          execFileSync("direnv", ["deny", dir], { stdio: "pipe" });
+          execFileSync("direnv", ["deny", dir], { env: ts.herdrEnv, stdio: "pipe" });
         } catch {}
       }
       await ts?.teardown();

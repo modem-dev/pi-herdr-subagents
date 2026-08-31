@@ -402,16 +402,21 @@ export async function createTestSession(): Promise<TestSession> {
   if (!prereqs.ok) throw new Error(`integration prerequisites missing: ${prereqs.reason}`);
 
   const suffix = `${process.pid}-${Math.random().toString(36).slice(2, 7)}`;
-  const sessionName = `herdr-subagents-test-${suffix}`;
+  // Keep the session segment short: Unix-domain socket paths are limited to
+  // roughly 104 bytes on macOS.
+  const sessionName = `phs-${suffix}`;
   const tmuxSession = `herdr-sub-itest-${suffix}`;
 
   // Temp dirs: scratch + isolated pi and Herdr config. Plugin registration is
   // user-global within one Herdr config, so the harness must use private XDG
   // roots rather than touching the developer's plugin registry.
-  // Physical path (macOS tmpdir is a /var → /private/var symlink): direnv
-  // keys its allow records by the PHYSICAL .envrc path, so `direnv exec` with
-  // a logical /var cwd reports "blocked" even after `direnv allow` (live-found).
-  const tmpDir = realpathSync(mkdtempSync(join(tmpdir(), "pi-herdr-itest-")));
+  // Use the short conventional Unix temp root because macOS's `tmpdir()` is a
+  // long /var/folders path that can overflow Herdr's Unix socket path limit.
+  // Resolve it physically (/tmp → /private/tmp on macOS): direnv keys its allow
+  // records by the PHYSICAL .envrc path, so a logical path reports "blocked"
+  // even after `direnv allow` (live-found).
+  const tmpRoot = process.platform === "win32" ? tmpdir() : "/tmp";
+  const tmpDir = realpathSync(mkdtempSync(join(tmpRoot, "pi-herdr-itest-")));
   const herdrConfigHome = join(tmpDir, "herdr-config");
   const herdrEnv = buildHerdrEnv(sessionName, {
     ...process.env,

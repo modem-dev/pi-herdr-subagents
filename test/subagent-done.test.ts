@@ -167,6 +167,50 @@ describe("subagent-done: subagent_done tool writes sidecar and shuts down", () =
     return join(dir, "child.jsonl");
   }
 
+  it("does not recreate a consumed sidecar when agent_end follows subagent_done", async () => {
+    const sessionFile = makeSessionFile();
+    const origSession = process.env.PI_SUBAGENT_SESSION;
+    const origAutoExit = process.env.PI_SUBAGENT_AUTO_EXIT;
+    process.env.PI_SUBAGENT_SESSION = sessionFile;
+    process.env.PI_SUBAGENT_AUTO_EXIT = "1";
+    cleanups.push(() => {
+      if (origSession !== undefined) process.env.PI_SUBAGENT_SESSION = origSession;
+      else delete process.env.PI_SUBAGENT_SESSION;
+      if (origAutoExit !== undefined) process.env.PI_SUBAGENT_AUTO_EXIT = origAutoExit;
+      else delete process.env.PI_SUBAGENT_AUTO_EXIT;
+    });
+
+    const handlers: Record<string, Function> = {};
+    const registeredTools: Record<string, any> = {};
+    const fakePi = {
+      on: (event: string, handler: Function) => { handlers[event] = handler; },
+      registerTool: (tool: any) => { registeredTools[tool.name] = tool; },
+      registerShortcut: () => {},
+      getAllTools: () => [],
+    };
+    const fakeCtx = {
+      shutdown: () => {},
+      getContextUsage: () => undefined,
+      ui: { setWidget: () => {} },
+    };
+
+    const mod = await import("../subagent-done.ts");
+    mod.default(fakePi as any);
+    await registeredTools.subagent_done.execute("call-1", {}, null, () => {}, fakeCtx);
+    assert.equal(existsSync(`${sessionFile}.exit`), true, "tool writes the terminal sidecar");
+
+    rmSync(`${sessionFile}.exit`);
+    handlers.agent_end?.(
+      { messages: [{ role: "assistant", stopReason: "stop" }] },
+      fakeCtx,
+    );
+    assert.equal(
+      existsSync(`${sessionFile}.exit`),
+      false,
+      "agent_end must not recreate a sidecar already consumed by the watcher",
+    );
+  });
+
   it("writes usage before the exact done sidecar and shuts down", async () => {
     const sessionFile = makeSessionFile();
     const origSession = process.env.PI_SUBAGENT_SESSION;
