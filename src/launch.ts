@@ -1,4 +1,4 @@
-// LaunchPlan builder — agent defs + tool params → artifacts + wrapper script + agent-start argv.
+// LaunchPlan builder — agent defs + tool params → artifacts + wrapper script + plugin-pane launch.
 //
 // Pure planning module: no herdr calls, no subprocesses. index.ts executes the
 // plan (write plan.files, seed plan.seedSession, client.paneStart(plan.paneStart)).
@@ -7,8 +7,8 @@
 //
 // Design (PLAN.md Key Decisions #4–#7):
 // - The generated wrapper script is the single place env/wrapping/exit-capture
-//   happens. herdr launches it as a direct argv process (`bash <script>`) — no
-//   shell typing, no launch race, no verify/retry machinery.
+//   happens. Herdr passes its path to the fixed plugin dispatcher — no shell
+//   typing, launch race, or verify/retry machinery.
 // - Env correctness for direnv/devenv repos: the script exports the
 //   orchestrator's PATH + curated PI_SUBAGENT_* vars (never a full env dump),
 //   and wraps the pi invocation in `direnv exec '<cwd>'` when the target cwd
@@ -100,7 +100,7 @@ export interface LaunchPlan {
     /** Orchestrator's own pane (HERDR_PANE_ID) — the new pane splits off it. */
     targetPaneId?: string;
     direction?: "right" | "down";
-    argv: string[];
+    launchScriptFile: string;
   };
   /** The unescaped pi invocation embedded in the wrapper script (piArgv[0] = binary). */
   piArgv: string[];
@@ -467,7 +467,7 @@ export function buildLaunchPlan(
       cwd: targetCwd,
       targetPaneId: env.HERDR_PANE_ID,
       direction: "right",
-      argv: ["bash", launchScriptFile],
+      launchScriptFile,
     },
     piArgv,
     interactive,
@@ -512,7 +512,7 @@ export interface ResumeLaunchPlan {
     cwd: string;
     targetPaneId?: string;
     direction?: "right" | "down";
-    argv: string[];
+    launchScriptFile: string;
   };
   piArgv: string[];
   interactive: boolean;
@@ -600,7 +600,7 @@ export function buildResumeLaunchPlan(
       cwd: ctx.parentCwd,
       targetPaneId: env.HERDR_PANE_ID,
       direction: "right",
-      argv: ["bash", launchScriptFile],
+      launchScriptFile,
     },
     piArgv,
     interactive,

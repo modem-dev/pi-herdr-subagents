@@ -38,12 +38,21 @@ export interface PingResult {
   protocol?: number | null;
 }
 
+export interface PluginInfo {
+  plugin_id: string;
+  enabled: boolean;
+  [key: string]: unknown;
+}
+
+export const HERDR_PLUGIN_ID = "pi-herdr-subagents";
+export const HERDR_PLUGIN_ENTRYPOINT = "subagent";
+export const MIN_HERDR_VERSION = "0.8.2";
+
 export interface HerdrClient {
   /**
-   * Create a new pane by splitting a target pane (the orchestrator's own pane
-   * via HERDR_PANE_ID) and launch an exact argv vector directly in it — no
-   * shell typing, no launch race. Requires a herdr build with pane.split
-   * command support (pane-split-argv branch / upstream discussion #1695).
+   * Split a plugin-owned pane beside the orchestrator and dispatch one generated
+   * launch script through the plugin's fixed argv entrypoint. No shell typing,
+   * launch race, or per-call argv support is required from Herdr.
    */
   paneStart(p: {
     name: string;
@@ -51,7 +60,7 @@ export interface HerdrClient {
     targetPaneId?: string;
     direction?: "right" | "down";
     env?: Record<string, string>;
-    argv: string[];
+    launchScriptFile: string;
   }): Promise<PaneStartResult>;
   paneRename(paneId: string, label: string): Promise<void>;
   paneGet(paneId: string): Promise<PaneInfo | null>;
@@ -59,6 +68,7 @@ export interface HerdrClient {
   paneClose(paneId: string): Promise<void>;
   paneSendKeys(paneId: string, keys: string[]): Promise<void>;
   ping(): Promise<PingResult>;
+  pluginGet(pluginId: string): Promise<PluginInfo | null>;
 }
 
 interface HerdrJsonEnvelope {
@@ -165,21 +175,38 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
 
   return {
     async paneStart(p) {
-      const args = ["pane", "split"];
-      if (p.targetPaneId) args.push("--pane", p.targetPaneId);
+      const args = [
+        "plugin",
+        "pane",
+        "open",
+        "--plugin",
+        HERDR_PLUGIN_ID,
+        "--entrypoint",
+        HERDR_PLUGIN_ENTRYPOINT,
+        "--placement",
+        "split",
+      ];
+      if (p.targetPaneId) args.push("--target-pane", p.targetPaneId);
       args.push("--direction", p.direction ?? "right");
       args.push("--cwd", p.cwd);
-      for (const [key, value] of Object.entries(p.env ?? {})) {
+      for (const [key, value] of Object.entries({
+        ...p.env,
+        PI_SUBAGENT_LAUNCH_SCRIPT: p.launchScriptFile,
+      })) {
         args.push("--env", `${key}=${value}`);
       }
-      args.push("--no-focus", "--", ...p.argv);
+      args.push("--no-focus");
 
-      const result = await execHerdrJson<{ pane?: Record<string, unknown> }>(args);
-      const pane = result.pane as
+      const result = await execHerdrJson<{
+        plugin_pane?: { pane?: Record<string, unknown> };
+      }>(args);
+      const pane = result.plugin_pane?.pane as
         | { pane_id?: string; terminal_id?: string; workspace_id?: string; tab_id?: string }
         | undefined;
       if (!pane?.pane_id) {
-        throw new HerdrError(`herdr pane split returned no pane id: ${JSON.stringify(result)}`);
+        throw new HerdrError(
+          `herdr plugin pane open returned no pane id: ${JSON.stringify(result)}`,
+        );
       }
       return {
         paneId: pane.pane_id,
@@ -233,6 +260,17 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
         throw new HerdrError(`Failed to parse herdr status output: ${stdout}`);
       }
       return { ok: status.running === true, version: status.version, protocol: status.protocol };
+    },
+
+    async pluginGet(pluginId) {
+      const result = await execHerdrJson<{ plugins?: PluginInfo[] }>([
+        "plugin",
+        "list",
+        "--plugin",
+        pluginId,
+        "--json",
+      ]);
+      return result.plugins?.find((plugin) => plugin.plugin_id === pluginId) ?? null;
     },
   };
 }

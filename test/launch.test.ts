@@ -370,10 +370,10 @@ describe("launch plan: task delivery", () => {
 });
 
 describe("launch plan: structure", () => {
-  it("pane start argv is bash <launch script> beside the caller pane", () => {
+  it("pane start carries the launch script path beside the caller pane", () => {
     const fx = makeFixture();
     const p = plan(fx, { cwd: fx.cwd });
-    assert.deepEqual(p.paneStart.argv, ["bash", p.launchScriptFile]);
+    assert.equal(p.paneStart.launchScriptFile, p.launchScriptFile);
     assert.equal(p.paneStart.cwd, fx.cwd);
     assert.equal(p.paneStart.name, "Worker");
     assert.equal(p.paneStart.targetPaneId, "w1:p1");

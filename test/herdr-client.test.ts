@@ -23,22 +23,26 @@ function fakeExec(responses: Array<{ stdout?: string; stderr?: string; code?: nu
   return { exec, calls };
 }
 
-const paneSplitEnvelope = JSON.stringify({
-  id: "cli:pane:split",
+const pluginPaneEnvelope = JSON.stringify({
+  id: "cli:plugin:pane",
   result: {
-    pane: {
-      pane_id: "w1:p2",
-      terminal_id: "term_abc123",
-      workspace_id: "w1",
-      tab_id: "w1:t1",
+    plugin_pane: {
+      plugin_id: "pi-herdr-subagents",
+      entrypoint: "subagent",
+      pane: {
+        pane_id: "w1:p2",
+        terminal_id: "term_abc123",
+        workspace_id: "w1",
+        tab_id: "w1:t1",
+      },
     },
-    type: "pane_info",
+    type: "plugin_pane_info",
   },
 });
 
 describe("HerdrClient", () => {
-  it("paneStart builds correct argv", async () => {
-    const { exec, calls } = fakeExec([{ stdout: paneSplitEnvelope }]);
+  it("paneStart builds the plugin pane command with the launch script env", async () => {
+    const { exec, calls } = fakeExec([{ stdout: pluginPaneEnvelope }]);
     const client = createHerdrClient({ exec });
 
     const result = await client.paneStart({
@@ -46,24 +50,30 @@ describe("HerdrClient", () => {
       cwd: "/tmp/project",
       targetPaneId: "w1:p1",
       direction: "right",
-      argv: ["bash", "/tmp/launch.sh"],
+      launchScriptFile: "/tmp/launch.sh",
     });
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].cmd, "herdr");
     assert.deepEqual(calls[0].args, [
+      "plugin",
       "pane",
+      "open",
+      "--plugin",
+      "pi-herdr-subagents",
+      "--entrypoint",
+      "subagent",
+      "--placement",
       "split",
-      "--pane",
+      "--target-pane",
       "w1:p1",
       "--direction",
       "right",
       "--cwd",
       "/tmp/project",
+      "--env",
+      "PI_SUBAGENT_LAUNCH_SCRIPT=/tmp/launch.sh",
       "--no-focus",
-      "--",
-      "bash",
-      "/tmp/launch.sh",
     ]);
     assert.deepEqual(result, {
       paneId: "w1:p2",
@@ -73,30 +83,30 @@ describe("HerdrClient", () => {
     });
   });
 
-  it("paneStart defaults direction right and omits --pane without a target", async () => {
-    const { exec, calls } = fakeExec([{ stdout: paneSplitEnvelope }]);
+  it("paneStart defaults direction right and omits --target-pane without a target", async () => {
+    const { exec, calls } = fakeExec([{ stdout: pluginPaneEnvelope }]);
     const client = createHerdrClient({ exec });
 
     await client.paneStart({
       name: "worker-1",
       cwd: "/tmp/project",
-      argv: ["bash", "/tmp/launch.sh"],
+      launchScriptFile: "/tmp/launch.sh",
     });
 
     const args = calls[0].args;
-    assert.equal(args.indexOf("--pane"), -1);
+    assert.equal(args.indexOf("--target-pane"), -1);
     assert.equal(args[args.indexOf("--direction") + 1], "right");
   });
 
-  it("paneStart passes env vars as --env flags", async () => {
-    const { exec, calls } = fakeExec([{ stdout: paneSplitEnvelope }]);
+  it("paneStart passes additional env vars before the dispatcher env", async () => {
+    const { exec, calls } = fakeExec([{ stdout: pluginPaneEnvelope }]);
     const client = createHerdrClient({ exec });
 
     await client.paneStart({
       name: "worker-1",
       cwd: "/tmp/project",
       env: { PI_SUBAGENT_ID: "abc", FOO: "bar" },
-      argv: ["bash", "/tmp/launch.sh"],
+      launchScriptFile: "/tmp/launch.sh",
     });
 
     const args = calls[0].args;
@@ -105,8 +115,40 @@ describe("HerdrClient", () => {
     assert.equal(args[envIdx + 1], "PI_SUBAGENT_ID=abc");
     assert.equal(args[envIdx + 2], "--env");
     assert.equal(args[envIdx + 3], "FOO=bar");
-    // env flags must come before the -- argv separator
-    assert.ok(envIdx < args.indexOf("--"));
+    assert.equal(args[envIdx + 4], "--env");
+    assert.equal(args[envIdx + 5], "PI_SUBAGENT_LAUNCH_SCRIPT=/tmp/launch.sh");
+  });
+
+  it("pluginGet returns the requested plugin or null", async () => {
+    const enabledPlugin = {
+      plugin_id: "pi-herdr-subagents",
+      enabled: true,
+    };
+    const { exec, calls } = fakeExec([
+      {
+        stdout: JSON.stringify({
+          id: "cli:plugin",
+          result: { type: "plugin_list", plugins: [enabledPlugin] },
+        }),
+      },
+      {
+        stdout: JSON.stringify({
+          id: "cli:plugin",
+          result: { type: "plugin_list", plugins: [] },
+        }),
+      },
+    ]);
+    const client = createHerdrClient({ exec });
+
+    assert.deepEqual(await client.pluginGet("pi-herdr-subagents"), enabledPlugin);
+    assert.equal(await client.pluginGet("missing"), null);
+    assert.deepEqual(calls[0].args, [
+      "plugin",
+      "list",
+      "--plugin",
+      "pi-herdr-subagents",
+      "--json",
+    ]);
   });
 
   it("paneRename shells out to pane rename and only demands exit 0", async () => {
