@@ -49,7 +49,12 @@ import {
   renderSubagentResult,
 } from "./src/messages.ts";
 import { markSubagentActive, markSubagentInactive } from "./src/runtime-state.ts";
-import { findLastAssistantMessage, getNewEntries, seedSubagentSessionFile } from "./src/session.ts";
+import {
+  findLastAssistantMessage,
+  getNewEntries,
+  getSessionId,
+  seedSubagentSessionFile,
+} from "./src/session.ts";
 import {
   watchSubagent,
   type RunningSubagent,
@@ -368,7 +373,7 @@ function armWatcher(
       const message = buildOutcomeMessage(
         running,
         mapOutcome ? mapOutcome(outcome) : outcome,
-        { contextUsage },
+        { contextUsage, sessionId: getSessionId(running.sessionFile) },
       );
       if (message) pi.sendMessage(message, { triggerTurn: true, deliverAs: "steer" });
     })

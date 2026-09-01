@@ -68,7 +68,12 @@ export function resolveResultPresentation(
 export function buildOutcomeMessage(
   running: RunningSubagent,
   outcome: SubagentOutcome,
-  opts?: { now?: () => number; contextUsage?: ContextUsageSnapshot | null },
+  opts?: {
+    now?: () => number;
+    contextUsage?: ContextUsageSnapshot | null;
+    /** Canonical pi session UUID, resolved once by the caller (see getSessionId). */
+    sessionId?: string | null;
+  },
 ): SubagentSteerMessage | null {
   const now = opts?.now ?? Date.now;
   const elapsed = Math.max(0, Math.floor((now() - running.startTime) / 1000));
@@ -80,6 +85,7 @@ export function buildOutcomeMessage(
     agent: running.agent,
     elapsed,
     sessionFile: running.sessionFile,
+    ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
     paneId: running.paneId,
     disposition: outcome.kind,
     ...(opts?.contextUsage ? { contextUsage: opts.contextUsage } : {}),
@@ -278,14 +284,19 @@ export function renderSubagentResult(
       const usageLine = contextUsageLine(details.contextUsage).trim();
       if (usageLine) contentLines.push(theme.fg("dim", usageLine));
       // NOTE: deliberately not width-truncated. These lines exist to be
-      // copy-pasted; a clipped path is useless. Session paths exceed typical
-      // terminal widths, so let the box wrap them instead.
+      // copy-pasted; a clipped path or id is useless. Prefer the session UUID:
+      // it fits on one line, whereas a ~135-char path hard-wraps across three.
+      // The full path stays available in the expanded view.
+      const sessionRefId = details.sessionId ?? details.sessionFile;
       if (details.sessionFile) {
-        contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
-        contentLines.push(theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`));
+        contentLines.push(theme.fg("dim", `Session: ${sessionRefId}`));
+        contentLines.push(theme.fg("dim", `Resume:  pi --session ${sessionRefId}`));
       }
 
       if (options.expanded) {
+        if (details.sessionId && details.sessionFile) {
+          contentLines.push(theme.fg("dim", `Path:    ${details.sessionFile}`));
+        }
         if (summary) {
           for (const line of summary.split("\n")) {
             contentLines.push(line.slice(0, width - 6));
@@ -335,8 +346,9 @@ export function renderSubagentPing(
       if (usageLine) contentLines.push(theme.fg("dim", usageLine));
       // NOTE: deliberately not width-truncated (see renderSubagentResult).
       if (details.sessionFile) {
-        contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
-        contentLines.push(theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`));
+        const pingRefId = details.sessionId ?? details.sessionFile;
+        contentLines.push(theme.fg("dim", `Session: ${pingRefId}`));
+        contentLines.push(theme.fg("dim", `Resume:  pi --session ${pingRefId}`));
       }
 
       if (options.expanded) {

@@ -91,6 +91,26 @@ export function getLeafId(sessionFile: string): string | null {
 }
 
 /**
+ * Return the canonical pi session UUID from the session file's header line.
+ *
+ * The filename's id segment is not always the session UUID (it may be a hash),
+ * so the header is the reliable source. Used to offer a short, copy-pasteable
+ * `pi --session <uuid>` instead of a ~135-char absolute path that hard-wraps in
+ * the result widget. Best-effort: returns null for a missing/empty/mangled file.
+ */
+export function getSessionId(sessionFile: string): string | null {
+  try {
+    const raw = readFileSync(sessionFile, "utf8");
+    const firstLine = raw.split("\n").find((line) => line.trim());
+    if (!firstLine) return null;
+    const id = (JSON.parse(firstLine) as { id?: unknown }).id;
+    return typeof id === "string" && id ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Return entries added after `afterLine` (1-indexed count of existing entries).
  */
 export function getNewEntries(sessionFile: string, afterLine: number): SessionEntry[] {

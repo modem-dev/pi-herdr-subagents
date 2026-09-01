@@ -12,12 +12,48 @@ import { tmpdir } from "node:os";
 import {
   getLeafId,
   getNewEntries,
+  getSessionId,
   findLastAssistantMessage,
   appendBranchSummary,
   copySessionFile,
   mergeNewEntries,
   seedSubagentSessionFile,
 } from "../src/session.ts";
+
+describe("getSessionId", () => {
+  let dir: string;
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), "pi-session-id-"));
+  });
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reads the canonical uuid from the header line", () => {
+    const file = join(dir, "ok.jsonl");
+    writeFileSync(
+      file,
+      `{"id":"01a05eb1-ab3c-7e90-98ba-0ad1e767a2f0","type":"session"}\n{"id":"x","type":"message"}\n`,
+    );
+    assert.equal(getSessionId(file), "01a05eb1-ab3c-7e90-98ba-0ad1e767a2f0");
+  });
+
+  it("returns null for missing, empty, or unparsable files instead of throwing", () => {
+    assert.equal(getSessionId(join(dir, "nope.jsonl")), null);
+
+    const empty = join(dir, "empty.jsonl");
+    writeFileSync(empty, "");
+    assert.equal(getSessionId(empty), null);
+
+    const garbage = join(dir, "garbage.jsonl");
+    writeFileSync(garbage, "not json at all\n");
+    assert.equal(getSessionId(garbage), null);
+
+    const noId = join(dir, "no-id.jsonl");
+    writeFileSync(noId, `{"type":"session"}\n`);
+    assert.equal(getSessionId(noId), null);
+  });
+});
 
 // --- Helpers ---
 

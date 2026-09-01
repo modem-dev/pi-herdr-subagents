@@ -336,6 +336,40 @@ describe("message renderers", () => {
     assert.doesNotMatch(output, /✗/, "should NOT show failure X");
   });
 
+  it("uses the session uuid for the resume command so it fits on one line", () => {
+    const uuid = "01a05eb1-ab3c-7e90-98ba-0ad1e767a2f0";
+    const longPath =
+      "/Users/justin/.pi/agent/sessions/--Users-justin-DEV-pi-herdr-subagents--/2026-09-01T20-38-16-828Z_dffdb49f-b11847cf-cd020f47-eb15.jsonl";
+    const msg = {
+      customType: "subagent_result",
+      display: true,
+      details: {
+        name: "Worker",
+        agent: "worker",
+        exitCode: 0,
+        disposition: "completed",
+        elapsed: 65,
+        summary: "Did the thing.",
+        sessionFile: longPath,
+        sessionId: uuid,
+      },
+    };
+    const collapsed = renderSubagentResult(msg as any, { expanded: false } as any, createTheme() as any);
+    assert.ok(collapsed);
+    const out = collapsed.render(80).join("\n");
+    assert.ok(
+      out.includes(`Resume:  pi --session ${uuid}`),
+      "resume line should use the uuid, unwrapped, on a single line",
+    );
+    assert.ok(!out.includes(longPath), "collapsed view should not carry the long path");
+
+    // Expanded keeps the full path available for reference.
+    const expanded = renderSubagentResult(msg as any, { expanded: true } as any, createTheme() as any);
+    assert.ok(expanded);
+    const expandedOut = expanded.render(80).join("\n").replace(/\s+/g, "");
+    assert.ok(expandedOut.includes(longPath), "expanded view should still expose the full path");
+  });
+
   it("never truncates the session path, even at narrow widths (must stay copy-pastable)", () => {
     // Real session paths are ~135 chars and exceed any normal terminal width.
     // These lines exist to be copy-pasted, so they must not be width-clipped.
