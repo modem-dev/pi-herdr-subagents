@@ -283,14 +283,12 @@ export function renderSubagentResult(
       const contentLines = [header];
       const usageLine = contextUsageLine(details.contextUsage).trim();
       if (usageLine) contentLines.push(theme.fg("dim", usageLine));
-      // NOTE: deliberately not width-truncated. These lines exist to be
+      // NOTE: deliberately not width-truncated. This line exists to be
       // copy-pasted; a clipped path or id is useless. Prefer the session UUID:
       // it fits on one line, whereas a ~135-char path hard-wraps across three.
       // The full path stays available in the expanded view.
-      const sessionRefId = details.sessionId ?? details.sessionFile;
       if (details.sessionFile) {
-        contentLines.push(theme.fg("dim", `Session: ${sessionRefId}`));
-        contentLines.push(theme.fg("dim", `Resume:  pi --session ${sessionRefId}`));
+        contentLines.push(theme.fg("dim", `Session: ${details.sessionId ?? details.sessionFile}`));
       }
 
       if (options.expanded) {
@@ -346,9 +344,7 @@ export function renderSubagentPing(
       if (usageLine) contentLines.push(theme.fg("dim", usageLine));
       // NOTE: deliberately not width-truncated (see renderSubagentResult).
       if (details.sessionFile) {
-        const pingRefId = details.sessionId ?? details.sessionFile;
-        contentLines.push(theme.fg("dim", `Session: ${pingRefId}`));
-        contentLines.push(theme.fg("dim", `Resume:  pi --session ${pingRefId}`));
+        contentLines.push(theme.fg("dim", `Session: ${details.sessionId ?? details.sessionFile}`));
       }
 
       if (options.expanded) {

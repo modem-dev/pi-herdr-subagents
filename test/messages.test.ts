@@ -247,7 +247,7 @@ describe("message renderers", () => {
     assert.match(output, /Worker/);
     assert.match(output, /completed/);
     assert.match(output, /Session: \/tmp\/sessions\/child\.jsonl/);
-    assert.match(output, /Resume: {2}pi --session \/tmp\/sessions\/child\.jsonl/);
+    assert.doesNotMatch(output, /Resume:/, "resume command is not rendered in the widget");
     assert.ok(output.indexOf("Session:") < output.indexOf("l1"), "session path is shown before the preview");
     assert.match(output, /l5/);
     assert.doesNotMatch(output, /l6/, "collapsed preview is capped at 5 lines");
@@ -262,10 +262,9 @@ describe("message renderers", () => {
     assert.match(output, /line-a/);
     assert.match(output, /line-b/);
     assert.match(output, /Session: \/tmp\/sessions\/child\.jsonl/);
-    assert.match(output, /Resume: {2}pi --session/);
+    assert.doesNotMatch(output, /Resume:/, "resume command is not rendered in the widget");
     assert.ok(output.indexOf("Session:") < output.indexOf("line-a"), "session path is shown before the summary");
     assert.equal(output.match(/Session: \/tmp\/sessions\/child\.jsonl/g)?.length, 1);
-    assert.equal(output.match(/Resume: {2}pi --session/g)?.length, 1);
   });
 
   it("subagent_result renders failure statuses honestly", () => {
@@ -292,7 +291,7 @@ describe("message renderers", () => {
     assert.match(collapsedOut, /Worker/);
     assert.match(collapsedOut, /needs help/);
     assert.match(collapsedOut, /Session: \/tmp\/sessions\/child\.jsonl/);
-    assert.match(collapsedOut, /Resume: {2}pi --session \/tmp\/sessions\/child\.jsonl/);
+    assert.doesNotMatch(collapsedOut, /Resume:/, "resume command is not rendered in the widget");
     assert.ok(collapsedOut.indexOf("Session:") < collapsedOut.indexOf("first line"));
     assert.match(collapsedOut, /first line/);
     assert.doesNotMatch(collapsedOut, /second line/);
@@ -302,7 +301,7 @@ describe("message renderers", () => {
     const expandedOut = expanded.render(80).join("\n");
     assert.match(expandedOut, /second line/);
     assert.match(expandedOut, /Session: \/tmp\/sessions\/child\.jsonl/);
-    assert.match(expandedOut, /Resume: {2}pi --session \/tmp\/sessions\/child\.jsonl/);
+    assert.doesNotMatch(expandedOut, /Resume:/, "resume command is not rendered in the widget");
     assert.ok(expandedOut.indexOf("Session:") < expandedOut.indexOf("first line"));
     assert.equal(expandedOut.match(/Session: \/tmp\/sessions\/child\.jsonl/g)?.length, 1);
   });
@@ -336,7 +335,7 @@ describe("message renderers", () => {
     assert.doesNotMatch(output, /✗/, "should NOT show failure X");
   });
 
-  it("uses the session uuid for the resume command so it fits on one line", () => {
+  it("shows the session uuid on one line and no resume command", () => {
     const uuid = "01a05eb1-ab3c-7e90-98ba-0ad1e767a2f0";
     const longPath =
       "/Users/justin/.pi/agent/sessions/--Users-justin-DEV-pi-herdr-subagents--/2026-09-01T20-38-16-828Z_dffdb49f-b11847cf-cd020f47-eb15.jsonl";
@@ -358,9 +357,10 @@ describe("message renderers", () => {
     assert.ok(collapsed);
     const out = collapsed.render(80).join("\n");
     assert.ok(
-      out.includes(`Resume:  pi --session ${uuid}`),
-      "resume line should use the uuid, unwrapped, on a single line",
+      out.includes(`Session: ${uuid}`),
+      "session line should use the uuid, unwrapped, on a single line",
     );
+    assert.ok(!out.includes("Resume:"), "no resume command line should be rendered");
     assert.ok(!out.includes(longPath), "collapsed view should not carry the long path");
 
     // Expanded keeps the full path available for reference.
