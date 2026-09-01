@@ -65,6 +65,7 @@ export interface HerdrClient {
   }): Promise<PaneStartResult>;
   paneRename(paneId: string, label: string): Promise<void>;
   paneGet(paneId: string): Promise<PaneInfo | null>;
+  paneRead(paneId: string, lines: number, signal?: AbortSignal): Promise<string | null>;
   paneList(): Promise<PaneInfo[]>;
   paneClose(paneId: string): Promise<void>;
   paneSendKeys(paneId: string, keys: string[]): Promise<void>;
@@ -230,6 +231,31 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
       } catch (error) {
         if (error instanceof HerdrError && error.code === "pane_not_found") return null;
         throw error;
+      }
+    },
+
+    async paneRead(paneId, lines, signal) {
+      try {
+        const result = await execHerdr(
+          [
+            "pane",
+            "read",
+            paneId,
+            "--lines",
+            String(lines),
+            "--source",
+            "visible",
+            "--format",
+            "text",
+          ],
+          signal,
+        );
+        return result.stdout;
+      } catch (error) {
+        // Diagnostic capture is best-effort. In particular, panes can vanish
+        // between lifecycle classification and this read.
+        if (error instanceof HerdrError && error.code === "pane_not_found") return null;
+        return null;
       }
     },
 

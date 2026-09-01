@@ -127,8 +127,15 @@ describe("buildOutcomeMessage", () => {
     assert.equal(msg.details.sessionFile, "/tmp/sessions/child.jsonl");
   });
 
-  it("launch-failed → names exit code, pane id, launch script; heldOpen mentions post-mortem", () => {
-    const msg = build({ kind: "launch-failed", exitCode: 7, heldOpen: true });
+  it("launch-failed → includes the captured pane tail in content and details", () => {
+    const paneOutput =
+      "direnv: error /tmp/project/.envrc is blocked. Run `direnv allow` to approve its content\n";
+    const msg = build({
+      kind: "launch-failed",
+      exitCode: 7,
+      heldOpen: true,
+      paneOutput,
+    });
     assert.ok(msg);
     assert.equal(msg.customType, "subagent_result");
     assert.match(msg.content, /failed to launch/);
@@ -136,24 +143,36 @@ describe("buildOutcomeMessage", () => {
     assert.match(msg.content, /w1:p4/);
     assert.match(msg.content, /\/tmp\/artifacts\/subagent-scripts\/worker-sub1\.sh/);
     assert.match(msg.content, /left open for post-mortem/);
+    assert.match(msg.content, /Pane output \(last 20 lines\):/);
+    assert.match(msg.content, /\.envrc is blocked/);
     assert.match(msg.content, /bash '\/tmp\/artifacts\/subagent-scripts\/worker-sub1\.sh'/);
     assert.equal(msg.details.error, "launch-failed");
+    assert.equal(msg.details.paneOutput, paneOutput);
     assert.equal(msg.details.exitCode, 7);
     assert.equal(msg.details.launchScriptFile, "/tmp/artifacts/subagent-scripts/worker-sub1.sh");
   });
 
-  it("launch-failed without heldOpen omits the post-mortem line but keeps remediation", () => {
-    const msg = build({ kind: "launch-failed", exitCode: 7, heldOpen: false });
+  it("launch-failed with empty capture says explicitly that the pane produced no output", () => {
+    const msg = build({ kind: "launch-failed", exitCode: 7, heldOpen: false, paneOutput: "" });
     assert.ok(msg);
     assert.doesNotMatch(msg.content, /left open for post-mortem/);
+    assert.match(msg.content, /Pane produced no output\./);
+    assert.doesNotMatch(msg.content, /Pane output \(last 20 lines\):\s*$/);
     assert.match(msg.content, /bash '\/tmp\/artifacts\/subagent-scripts\/worker-sub1\.sh'/);
+    assert.equal(msg.details.paneOutput, "");
   });
 
-  it("crashed → failed (exit code N) + summary + resumable session path", () => {
-    const msg = build({ kind: "crashed", exitCode: 1, summary: "I was mid-refactor." });
+  it("crashed → failed (exit code N) + summary + pane tail + resumable session path", () => {
+    const msg = build({
+      kind: "crashed",
+      exitCode: 1,
+      summary: "I was mid-refactor.",
+      paneOutput: "fatal: socket closed\n",
+    });
     assert.ok(msg);
     assert.match(msg.content, /Sub-agent "Worker" failed \(exit code 1\)\./);
     assert.match(msg.content, /I was mid-refactor\./);
+    assert.match(msg.content, /fatal: socket closed/);
     assert.match(msg.content, /Resume: pi --session \/tmp\/sessions\/child\.jsonl/);
     assert.equal(msg.details.error, "crashed");
     assert.equal(msg.details.exitCode, 1);
@@ -252,6 +271,20 @@ describe("message renderers", () => {
     assert.match(output, /l5/);
     assert.doesNotMatch(output, /l6/, "collapsed preview is capped at 5 lines");
     assert.match(output, /… 2 more lines/);
+  });
+
+  it("launch-failed expanded shows captured pane output", () => {
+    const msg = build({
+      kind: "launch-failed",
+      exitCode: 1,
+      heldOpen: true,
+      paneOutput: "error: missing extension file\n",
+    })!;
+    const rendered = renderSubagentResult(msg as any, { expanded: true } as any, createTheme() as any);
+    assert.ok(rendered);
+    const output = rendered.render(80).join("\n");
+    assert.match(output, /Pane output \(last 20 lines\):/);
+    assert.match(output, /missing extension file/);
   });
 
   it("subagent_result expanded shows full summary and session block exactly once near the top", () => {

@@ -21,8 +21,9 @@
 // later resume of the same session cannot see stale completion signals. It
 // does NOT touch the runningSubagents map — removal is the caller's job.
 //
-// Anti-patterns deliberately absent: no `pane read` screen scraping, no stall
-// detection/status transitions (discarded per plan §9).
+// Pane text is never used for lifecycle detection. A bounded, best-effort
+// `pane read` captures diagnostics only after a failure has been classified.
+// Stall detection/status transitions remain absent (discarded per plan §9).
 import { readFileSync, rmSync, watch as fsWatch, type FSWatcher } from "node:fs";
 import { basename, dirname } from "node:path";
 
@@ -47,8 +48,8 @@ export type SubagentOutcome =
   | { kind: "completed"; summary: string; exitCode: 0 }
   | { kind: "completed-user-exit"; summary: string; exitCode: 0 } // no .exit sidecar
   | { kind: "ping"; name: string; message: string }
-  | { kind: "launch-failed"; exitCode: number; heldOpen: boolean }
-  | { kind: "crashed"; exitCode: number; summary: string | null }
+  | { kind: "launch-failed"; exitCode: number; heldOpen: boolean; paneOutput: string | null }
+  | { kind: "crashed"; exitCode: number; summary: string | null; paneOutput: string | null }
   | { kind: "pane-killed"; summary: string | null }
   | { kind: "gap-exit"; summary: string | null; exitCode: number | null }
   | { kind: "cancelled" };
@@ -56,6 +57,7 @@ export type SubagentOutcome =
 export interface WatcherDeps {
   client: {
     paneGet(paneId: string): Promise<PaneInfo | null>;
+    paneRead(paneId: string, lines: number, signal?: AbortSignal): Promise<string | null>;
     paneList(): Promise<PaneInfo[]>;
   };
   stream: {
@@ -73,6 +75,8 @@ export interface WatcherDeps {
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_STARTUP_WINDOW_MS = 15_000;
+const PANE_TAIL_LINES = 20;
+const PANE_CAPTURE_TIMEOUT_MS = 100;
 
 type Trigger = "event" | "sidecar" | "gone";
 
@@ -129,6 +133,36 @@ export function watchSubagent(
 
     function readSummary(): string | null {
       return findLastAssistantMessage(readSessionEntries());
+    }
+
+    /**
+     * Capture diagnostics while a failed pane may still exist. The strict time
+     * budget keeps a slow or wedged herdr CLI from delaying the failure steer.
+     */
+    function capturePaneTail(): Promise<string | null> {
+      return new Promise((resolveCapture) => {
+        let settled = false;
+        const controller = new AbortController();
+        const settle = (output: string | null) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolveCapture(output);
+        };
+        const timer = setTimeout(() => {
+          controller.abort();
+          settle(null);
+        }, PANE_CAPTURE_TIMEOUT_MS);
+        timer.unref?.();
+
+        try {
+          void deps.client
+            .paneRead(running.paneId, PANE_TAIL_LINES, controller.signal)
+            .then(settle, () => settle(null));
+        } catch {
+          settle(null);
+        }
+      });
     }
 
     function readExitSidecar(): { type?: string; name?: string; message?: string } | null {
@@ -203,9 +237,14 @@ export function watchSubagent(
         if (withinStartupWindow && readSessionEntries().length === 0) {
           // Startup crash (e.g. bad --model). If the wrapper's hold-open kept
           // the pane alive, no pane event has fired — the sidecar is the signal.
-          return { kind: "launch-failed", exitCode, heldOpen: !paneEventSeen };
+          return {
+            kind: "launch-failed",
+            exitCode,
+            heldOpen: !paneEventSeen,
+            paneOutput: null,
+          };
         }
-        return { kind: "crashed", exitCode, summary: readSummary() };
+        return { kind: "crashed", exitCode, summary: readSummary(), paneOutput: null };
       }
 
       // No sidecars at all.
@@ -222,6 +261,20 @@ export function watchSubagent(
     }
 
     let staleCheckInFlight = false;
+    let paneCaptureInFlight = false;
+
+    function finishWithDiagnostics(outcome: SubagentOutcome, consumeSidecars: boolean): void {
+      if (outcome.kind !== "launch-failed" && outcome.kind !== "crashed") {
+        finish(outcome, consumeSidecars);
+        return;
+      }
+      if (paneCaptureInFlight) return;
+      paneCaptureInFlight = true;
+      void capturePaneTail().then((paneOutput) => {
+        if (done) return;
+        finish({ ...outcome, paneOutput }, consumeSidecars);
+      });
+    }
 
     function trySettle(trigger: Trigger): void {
       if (done) return;
@@ -261,7 +314,7 @@ export function watchSubagent(
         return;
       }
 
-      finish(outcome, true);
+      finishWithDiagnostics(outcome, true);
     }
 
     // ── signal source (a): pane events ──

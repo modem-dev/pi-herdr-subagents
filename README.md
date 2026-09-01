@@ -233,8 +233,8 @@ eternal "stalled" zombie** — every row below terminates the running entry with
 | child called `subagent_done` | `completed` + summary (last assistant message) |
 | child called `caller_ping` | `subagent_ping` + the child's question + session path |
 | user drove the child and quit pi without `subagent_done` | distinct honest phrasing: *"closed by user, no subagent_done"* + last message + session path |
-| child exited nonzero within the startup window (e.g. bad `--model`) | `failed to launch (exit code N)` + pane id + launch script path; pane held open for post-mortem |
-| child crashed later | exit code + last message + session path (resumable) |
+| child exited nonzero within the startup window (e.g. bad `--model`) | `failed to launch (exit code N)` + captured pane tail + pane id + launch script path; pane held open for post-mortem |
+| child crashed later | exit code + captured pane tail + last message + session path (resumable) |
 | pane killed externally (no sidecars) | honest failure steer + session path (resumable) |
 | pane vanished while the event stream was down | classified from on-disk sidecars, else *"ended while event stream was down"* |
 

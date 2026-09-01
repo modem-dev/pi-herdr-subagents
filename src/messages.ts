@@ -50,6 +50,11 @@ function contextUsageLine(usage: ContextUsageSnapshot | null | undefined): strin
   );
 }
 
+function paneOutputSection(paneOutput: string | null | undefined): string {
+  const output = paneOutput?.trim();
+  return output ? `Pane output (last 20 lines):\n${output}` : "Pane produced no output.";
+}
+
 /** Ported: completed/failed presentation with Session:/Resume: block. */
 export function resolveResultPresentation(
   result: { exitCode: number; elapsed: number; summary: string; sessionFile?: string },
@@ -129,9 +134,7 @@ export function buildOutcomeMessage(
       };
 
     case "launch-failed": {
-      const lines = [
-        `Sub-agent "${running.name}" failed to launch (exit code ${outcome.exitCode}).`,
-        "",
+      const summaryLines = [
         `Pane: ${running.paneId} (herdr)`,
         `Launch script: ${running.launchScriptFile}`,
         "",
@@ -139,9 +142,22 @@ export function buildOutcomeMessage(
         "To retry manually, run in that pane (or any shell):",
         `  bash '${running.launchScriptFile}'`,
       ];
+      const summary = summaryLines.join("\n");
+      const content = [
+        `Sub-agent "${running.name}" failed to launch (exit code ${outcome.exitCode}).`,
+        "",
+        `Pane: ${running.paneId} (herdr)`,
+        `Launch script: ${running.launchScriptFile}`,
+        "",
+        paneOutputSection(outcome.paneOutput),
+        "",
+        ...(outcome.heldOpen ? ["The pane was left open for post-mortem."] : []),
+        "To retry manually, run in that pane (or any shell):",
+        `  bash '${running.launchScriptFile}'`,
+      ].join("\n");
       return {
         customType: "subagent_result",
-        content: lines.join("\n") + usageSuffix,
+        content: content + usageSuffix,
         display: true,
         details: {
           ...baseDetails,
@@ -149,6 +165,8 @@ export function buildOutcomeMessage(
           error: "launch-failed",
           heldOpen: outcome.heldOpen,
           launchScriptFile: running.launchScriptFile,
+          summary,
+          paneOutput: outcome.paneOutput,
         },
       };
     }
@@ -161,13 +179,16 @@ export function buildOutcomeMessage(
           resolveResultPresentation(
             { exitCode: outcome.exitCode, elapsed, summary, sessionFile: running.sessionFile },
             running.name,
-          ) + usageSuffix,
+          ) +
+          `\n\n${paneOutputSection(outcome.paneOutput)}` +
+          usageSuffix,
         display: true,
         details: {
           ...baseDetails,
           exitCode: outcome.exitCode,
           error: "crashed",
           summary: outcome.summary,
+          paneOutput: outcome.paneOutput,
         },
       };
     }
@@ -297,6 +318,12 @@ export function renderSubagentResult(
         }
         if (summary) {
           for (const line of summary.split("\n")) {
+            contentLines.push(line.slice(0, width - 6));
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(details, "paneOutput")) {
+          contentLines.push("");
+          for (const line of paneOutputSection(details.paneOutput).split("\n")) {
             contentLines.push(line.slice(0, width - 6));
           }
         }

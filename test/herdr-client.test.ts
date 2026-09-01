@@ -243,6 +243,35 @@ describe("HerdrClient", () => {
     }
   });
 
+  it("paneRead returns visible pane tail as text", async () => {
+    const { exec, calls } = fakeExec([{ stdout: "first line\nlast line\n" }]);
+    const client = createHerdrClient({ exec });
+
+    assert.equal(await client.paneRead("w1:p2", 20), "first line\nlast line\n");
+    assert.deepEqual(calls[0].args, [
+      "pane",
+      "read",
+      "w1:p2",
+      "--lines",
+      "20",
+      "--source",
+      "visible",
+      "--format",
+      "text",
+    ]);
+  });
+
+  it("paneRead returns null when the pane is already gone", async () => {
+    const notFound = JSON.stringify({
+      error: { code: "pane_not_found", message: "pane w1:p9 not found" },
+      id: "x",
+    });
+    const { exec } = fakeExec([{ stdout: notFound, code: 1 }]);
+    const client = createHerdrClient({ exec });
+
+    assert.equal(await client.paneRead("w1:p9", 20), null);
+  });
+
   it("paneList returns panes array", async () => {
     const envelope = JSON.stringify({
       id: "x",
