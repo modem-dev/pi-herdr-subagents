@@ -50,8 +50,22 @@ function contextUsageLine(usage: ContextUsageSnapshot | null | undefined): strin
   );
 }
 
+/**
+ * Three distinct outcomes, deliberately NOT collapsed into one message:
+ *
+ *  - text        -> show it
+ *  - ""          -> the read succeeded and the pane was genuinely empty. Strong
+ *                   signal: the process died before writing anything, which
+ *                   points at a missing binary/file/argv rather than a runtime
+ *                   error inside the agent.
+ *  - null        -> the capture itself failed (timed out, errored, or the pane
+ *                   had already vanished). We do NOT know whether there was
+ *                   output, so claiming "no output" here would be a false
+ *                   diagnostic pointing at the wrong root cause.
+ */
 function paneOutputSection(paneOutput: string | null | undefined): string {
-  const output = paneOutput?.trim();
+  if (paneOutput == null) return "Pane output unavailable (capture failed, timed out, or pane closed).";
+  const output = paneOutput.trim();
   return output ? `Pane output (last 20 lines):\n${output}` : "Pane produced no output.";
 }
 

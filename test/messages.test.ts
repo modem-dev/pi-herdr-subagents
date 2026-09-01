@@ -162,6 +162,21 @@ describe("buildOutcomeMessage", () => {
     assert.equal(msg.details.paneOutput, "");
   });
 
+  it("launch-failed with a FAILED capture does not claim the pane was empty", () => {
+    // null means the read timed out / errored / the pane had already vanished.
+    // We do not know whether there was output, so claiming "no output" would
+    // point the reader at the wrong root cause (missing binary vs. lost capture).
+    const msg = build({ kind: "launch-failed", exitCode: 7, heldOpen: false, paneOutput: null });
+    assert.ok(msg);
+    assert.match(msg.content, /Pane output unavailable/);
+    assert.doesNotMatch(
+      msg.content,
+      /Pane produced no output\./,
+      "a failed capture must not be reported as an empty pane",
+    );
+    assert.equal(msg.details.paneOutput, null);
+  });
+
   it("crashed → failed (exit code N) + summary + pane tail + resumable session path", () => {
     const msg = build({
       kind: "crashed",
