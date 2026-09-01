@@ -246,12 +246,15 @@ describe("message renderers", () => {
     const output = lines.join("\n");
     assert.match(output, /Worker/);
     assert.match(output, /completed/);
+    assert.match(output, /Session: \/tmp\/sessions\/child\.jsonl/);
+    assert.match(output, /Resume: {2}pi --session \/tmp\/sessions\/child\.jsonl/);
+    assert.ok(output.indexOf("Session:") < output.indexOf("l1"), "session path is shown before the preview");
     assert.match(output, /l5/);
     assert.doesNotMatch(output, /l6/, "collapsed preview is capped at 5 lines");
     assert.match(output, /… 2 more lines/);
   });
 
-  it("subagent_result expanded shows full summary and session block", () => {
+  it("subagent_result expanded shows full summary and session block exactly once near the top", () => {
     const msg = build({ kind: "completed", summary: "line-a\nline-b", exitCode: 0 })!;
     const rendered = renderSubagentResult(msg as any, { expanded: true } as any, createTheme() as any);
     assert.ok(rendered);
@@ -260,6 +263,9 @@ describe("message renderers", () => {
     assert.match(output, /line-b/);
     assert.match(output, /Session: \/tmp\/sessions\/child\.jsonl/);
     assert.match(output, /Resume: {2}pi --session/);
+    assert.ok(output.indexOf("Session:") < output.indexOf("line-a"), "session path is shown before the summary");
+    assert.equal(output.match(/Session: \/tmp\/sessions\/child\.jsonl/g)?.length, 1);
+    assert.equal(output.match(/Resume: {2}pi --session/g)?.length, 1);
   });
 
   it("subagent_result renders failure statuses honestly", () => {
@@ -285,6 +291,9 @@ describe("message renderers", () => {
     const collapsedOut = collapsed.render(80).join("\n");
     assert.match(collapsedOut, /Worker/);
     assert.match(collapsedOut, /needs help/);
+    assert.match(collapsedOut, /Session: \/tmp\/sessions\/child\.jsonl/);
+    assert.match(collapsedOut, /Resume: {2}pi --session \/tmp\/sessions\/child\.jsonl/);
+    assert.ok(collapsedOut.indexOf("Session:") < collapsedOut.indexOf("first line"));
     assert.match(collapsedOut, /first line/);
     assert.doesNotMatch(collapsedOut, /second line/);
 
@@ -293,6 +302,9 @@ describe("message renderers", () => {
     const expandedOut = expanded.render(80).join("\n");
     assert.match(expandedOut, /second line/);
     assert.match(expandedOut, /Session: \/tmp\/sessions\/child\.jsonl/);
+    assert.match(expandedOut, /Resume: {2}pi --session \/tmp\/sessions\/child\.jsonl/);
+    assert.ok(expandedOut.indexOf("Session:") < expandedOut.indexOf("first line"));
+    assert.equal(expandedOut.match(/Session: \/tmp\/sessions\/child\.jsonl/g)?.length, 1);
   });
 
   it("renderers return undefined for messages without details", () => {

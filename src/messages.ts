@@ -277,17 +277,18 @@ export function renderSubagentResult(
       const contentLines = [header];
       const usageLine = contextUsageLine(details.contextUsage).trim();
       if (usageLine) contentLines.push(theme.fg("dim", usageLine));
+      if (details.sessionFile) {
+        contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`.slice(0, width - 6)));
+        contentLines.push(
+          theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`.slice(0, width - 6)),
+        );
+      }
 
       if (options.expanded) {
         if (summary) {
           for (const line of summary.split("\n")) {
             contentLines.push(line.slice(0, width - 6));
           }
-        }
-        if (details.sessionFile) {
-          contentLines.push("");
-          contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
-          contentLines.push(theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`));
         }
       } else {
         if (summary) {
@@ -331,14 +332,16 @@ export function renderSubagentPing(
       const contentLines = [header];
       const usageLine = contextUsageLine(details.contextUsage).trim();
       if (usageLine) contentLines.push(theme.fg("dim", usageLine));
+      if (details.sessionFile) {
+        contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`.slice(0, width - 6)));
+        contentLines.push(
+          theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`.slice(0, width - 6)),
+        );
+      }
 
       if (options.expanded) {
         contentLines.push("");
         contentLines.push(details.message ?? "");
-        if (details.sessionFile) {
-          contentLines.push("");
-          contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
-        }
       } else {
         const preview = (details.message ?? "").split("\n")[0].slice(0, width - 10);
         contentLines.push(theme.fg("dim", preview));
