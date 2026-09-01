@@ -277,11 +277,12 @@ export function renderSubagentResult(
       const contentLines = [header];
       const usageLine = contextUsageLine(details.contextUsage).trim();
       if (usageLine) contentLines.push(theme.fg("dim", usageLine));
+      // NOTE: deliberately not width-truncated. These lines exist to be
+      // copy-pasted; a clipped path is useless. Session paths exceed typical
+      // terminal widths, so let the box wrap them instead.
       if (details.sessionFile) {
-        contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`.slice(0, width - 6)));
-        contentLines.push(
-          theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`.slice(0, width - 6)),
-        );
+        contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
+        contentLines.push(theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`));
       }
 
       if (options.expanded) {
@@ -332,11 +333,10 @@ export function renderSubagentPing(
       const contentLines = [header];
       const usageLine = contextUsageLine(details.contextUsage).trim();
       if (usageLine) contentLines.push(theme.fg("dim", usageLine));
+      // NOTE: deliberately not width-truncated (see renderSubagentResult).
       if (details.sessionFile) {
-        contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`.slice(0, width - 6)));
-        contentLines.push(
-          theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`.slice(0, width - 6)),
-        );
+        contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
+        contentLines.push(theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`));
       }
 
       if (options.expanded) {

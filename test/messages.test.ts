@@ -336,6 +336,38 @@ describe("message renderers", () => {
     assert.doesNotMatch(output, /✗/, "should NOT show failure X");
   });
 
+  it("never truncates the session path, even at narrow widths (must stay copy-pastable)", () => {
+    // Real session paths are ~135 chars and exceed any normal terminal width.
+    // These lines exist to be copy-pasted, so they must not be width-clipped.
+    const longPath =
+      "/Users/justin/.pi/agent/sessions/--Users-justin-DEV-pi-herdr-subagents--/2026-09-01T20-38-16-828Z_dffdb49f-b11847cf-cd020f47-eb15.jsonl";
+    const msg = {
+      customType: "subagent_result",
+      display: true,
+      details: {
+        name: "Worker",
+        agent: "worker",
+        exitCode: 0,
+        disposition: "completed",
+        elapsed: 65,
+        summary: "Did the thing.",
+        sessionFile: longPath,
+      },
+    };
+    for (const expanded of [false, true]) {
+      const rendered = renderSubagentResult(msg as any, { expanded } as any, createTheme() as any);
+      assert.ok(rendered);
+      const output = rendered.render(80).join("\n");
+      // The box hard-wraps long lines, so the path may span rows; what must NOT
+      // happen is losing characters to width truncation.
+      const unwrapped = output.replace(/\s+/g, "");
+      assert.ok(
+        unwrapped.includes(longPath),
+        `session path must not be clipped at width 80 (expanded=${expanded})`,
+      );
+    }
+  });
+
   it("renders old pi-interactive-subagents failed steer messages as failure", () => {
     const oldStyleFailMsg = {
       customType: "subagent_result",
