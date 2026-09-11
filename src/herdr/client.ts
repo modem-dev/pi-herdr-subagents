@@ -44,6 +44,12 @@ export interface PluginInfo {
   [key: string]: unknown;
 }
 
+export interface TabInfo {
+  tab_id?: string;
+  label?: string;
+  [key: string]: unknown;
+}
+
 export const HERDR_PLUGIN_ID = "pi-herdr-subagents";
 export const HERDR_PLUGIN_ENTRYPOINT = "subagent";
 export const HERDR_PLUGIN_ARGV_ENTRYPOINT = "argv";
@@ -81,6 +87,8 @@ export interface HerdrClient {
   paneRename(paneId: string, label: string): Promise<void>;
   /** Best-effort tab title rename. Optional so custom client mocks stay valid. */
   tabRename?(tabId: string, label: string): Promise<void>;
+  /** Best-effort tab lookup (label inheritance). Optional; null when the tab is gone. */
+  tabGet?(tabId: string): Promise<TabInfo | null>;
   paneGet(paneId: string): Promise<PaneInfo | null>;
   paneRead(paneId: string, lines: number, signal?: AbortSignal): Promise<string | null>;
   paneList(): Promise<PaneInfo[]>;
@@ -252,6 +260,18 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
       // placement) — callers gate on placement.
       if (!tabId) return;
       await execHerdr(["tab", "rename", tabId, label]);
+    },
+
+    async tabGet(tabId) {
+      try {
+        const result = await execHerdrJson<{ tab?: TabInfo }>(["tab", "get", tabId]);
+        return result.tab ?? null;
+      } catch (error) {
+        // Stale parent-tab ids (herdr restart) and unknown tabs are routine;
+        // labeling is best-effort, so only a missing tab resolves to null.
+        if (error instanceof HerdrError && error.code === "tab_not_found") return null;
+        throw error;
+      }
     },
 
     async paneGet(paneId) {

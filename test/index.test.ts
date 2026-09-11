@@ -664,6 +664,96 @@ describe("index: subagent tool", () => {
 
     assert.match(result.content[0].text, /not supported/);
   });
+
+it("spawn composes prefix + inherited parent tab label + child name", async () => {
+  const { tool } = registerAndGetTool();
+  const fx = makeSpawnFixture();
+  const renamed: { pane?: string; tab?: string } = {};
+
+  const prevPrefix = process.env.PI_HERDR_LABEL_PREFIX;
+  const prevTabId = process.env.HERDR_TAB_ID;
+  const prevPlacement = process.env.PI_HERDR_PLACEMENT;
+  process.env.PI_HERDR_LABEL_PREFIX = "🤖 ";
+  process.env.HERDR_TAB_ID = "w1:tParent";
+  process.env.PI_HERDR_PLACEMENT = "tab"; // child gets its own tab → tabRename fires
+
+  __test__.setDeps({
+    client: makeFakeClient({
+      paneStart: async () => ({
+        paneId: "w1:p9",
+        terminalId: "term1",
+        workspaceId: "w1",
+        tabId: "w1:tChild",
+      }),
+      tabGet: async (tabId: string) =>
+        tabId === "w1:tParent" ? { tab_id: tabId, label: "VoiceVibe" } : null,
+      paneRename: async (_id: string, label: string) => {
+        renamed.pane = label;
+      },
+      tabRename: async (_id: string, label: string) => {
+        renamed.tab = label;
+      },
+    }),
+    watch: async (): Promise<SubagentOutcome> => ({
+      kind: "completed",
+      summary: "done",
+      exitCode: 0,
+    }),
+  });
+
+  try {
+    await tool.execute("t1", { name: "Patch auth", task: "do it" }, undefined, undefined, fx.ctx);
+
+    assert.equal(renamed.pane, "🤖 VoiceVibe · Patch auth");
+    assert.equal(renamed.tab, "🤖 VoiceVibe · Patch auth");
+  } finally {
+    if (prevPrefix === undefined) delete process.env.PI_HERDR_LABEL_PREFIX;
+    else process.env.PI_HERDR_LABEL_PREFIX = prevPrefix;
+    if (prevTabId === undefined) delete process.env.HERDR_TAB_ID;
+    else process.env.HERDR_TAB_ID = prevTabId;
+    if (prevPlacement === undefined) delete process.env.PI_HERDR_PLACEMENT;
+    else process.env.PI_HERDR_PLACEMENT = prevPlacement;
+  }
+});
+
+it("spawn falls back to prefix + child name when the parent tab is unlabeled", async () => {
+  const { tool } = registerAndGetTool();
+  const fx = makeSpawnFixture();
+  const renamed: { pane?: string; tab?: string } = {};
+
+  const prevPrefix = process.env.PI_HERDR_LABEL_PREFIX;
+  const prevTabId = process.env.HERDR_TAB_ID;
+  process.env.PI_HERDR_LABEL_PREFIX = "🤖 ";
+  process.env.HERDR_TAB_ID = "w1:tGone"; // stale/unlabeled → tabGet resolves null
+
+  __test__.setDeps({
+    client: makeFakeClient({
+      tabGet: async () => null,
+      paneRename: async (_id: string, label: string) => {
+        renamed.pane = label;
+      },
+      tabRename: async (_id: string, label: string) => {
+        renamed.tab = label;
+      },
+    }),
+    watch: async (): Promise<SubagentOutcome> => ({
+      kind: "completed",
+      summary: "done",
+      exitCode: 0,
+    }),
+  });
+
+  try {
+    await tool.execute("t1", { name: "Patch auth", task: "do it" }, undefined, undefined, fx.ctx);
+
+    assert.equal(renamed.pane, "🤖 Patch auth");
+  } finally {
+    if (prevPrefix === undefined) delete process.env.PI_HERDR_LABEL_PREFIX;
+    else process.env.PI_HERDR_LABEL_PREFIX = prevPrefix;
+    if (prevTabId === undefined) delete process.env.HERDR_TAB_ID;
+    else process.env.HERDR_TAB_ID = prevTabId;
+  }
+});
 });
 
 // ── steer message renderers ────────────────────────────────────────────────

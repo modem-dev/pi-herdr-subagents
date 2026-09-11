@@ -63,6 +63,32 @@ import {
   type WatcherDeps,
 } from "./src/watcher.ts";
 
+/**
+ * Compose the label for a spawned subagent's pane (and tab, for non-split
+ * placements): PI_HERDR_LABEL_PREFIX + the orchestrator's tab label (when the
+ * tab is labeled — looked up via HERDR_TAB_ID) + the child's own name, so
+ * children are attributable to their parent at a glance. Degrades gracefully:
+ * missing prefix, an unlabeled/stale tab, or lookup failures all fall back to
+ * just the child name.
+ */
+async function composeSubagentLabel(
+  deps: { client: HerdrClient },
+  childName: string,
+): Promise<string> {
+  const prefix = process.env.PI_HERDR_LABEL_PREFIX ?? "";
+  let parentLabel = "";
+  const parentTabId = process.env.HERDR_TAB_ID;
+  if (parentTabId && deps.client.tabGet) {
+    try {
+      parentLabel = (await deps.client.tabGet(parentTabId))?.label ?? "";
+    } catch {
+      parentLabel = ""; // labeling never blocks spawning
+    }
+  }
+  const composed = parentLabel ? `${parentLabel} · ${childName}` : childName;
+  return `${prefix}${composed}`;
+}
+
 /** Absolute path of this module — used to detect losing the tool-registry race. */
 const MODULE_PATH = fileURLToPath(import.meta.url);
 const HERDR_PLUGIN_DIR = join(dirname(MODULE_PATH), "herdr-plugin");
@@ -567,9 +593,8 @@ async function executeSubagentSpawn(
   // Best-effort labels: the pane label always (sidebar); the tab title only
   // when the child got its own tab (non-split placement), since a split child
   // shares the orchestrator's tab and renaming it would mislabel the
-  // orchestrator. PI_HERDR_LABEL_PREFIX (e.g. "🤖 ") makes subagent
-  // panes/tabs easy to tell apart from regular pi panes.
-  const label = `${process.env.PI_HERDR_LABEL_PREFIX ?? ""}${params.name}`;
+  // orchestrator. Labels compose: prefix + inherited parent tab label + name.
+  const label = await composeSubagentLabel(deps, params.name);
   await deps.client.paneRename(started.paneId, label).catch(() => {});
   if (panePlacement() !== "split") {
     await deps.client.tabRename?.(started.tabId, label).catch(() => {});
@@ -797,9 +822,8 @@ async function executeSubagentResume(
   // Best-effort labels: the pane label always (sidebar); the tab title only
   // when the child got its own tab (non-split placement), since a split child
   // shares the orchestrator's tab and renaming it would mislabel the
-  // orchestrator. PI_HERDR_LABEL_PREFIX (e.g. "🤖 ") makes subagent
-  // panes/tabs easy to tell apart from regular pi panes.
-  const label = `${process.env.PI_HERDR_LABEL_PREFIX ?? ""}${plan.name}`;
+  // orchestrator. Labels compose: prefix + inherited parent tab label + name.
+  const label = await composeSubagentLabel(deps, plan.name);
   await deps.client.paneRename(started.paneId, label).catch(() => {});
   if (panePlacement() !== "split") {
     await deps.client.tabRename?.(started.tabId, label).catch(() => {});

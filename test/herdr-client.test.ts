@@ -491,4 +491,31 @@ describe("HerdrClient", () => {
 
     assert.equal(calls.length, 0);
   });
+
+  it("tabGet returns the tab envelope payload", async () => {
+    const tabEnvelope = JSON.stringify({
+      id: "cli:tab:get",
+      result: { tab: { tab_id: "w1:t1", label: "VoiceVibe" }, type: "tab_info" },
+    });
+    const { exec, calls } = fakeExec([{ stdout: tabEnvelope }]);
+    const client = createHerdrClient({ exec });
+
+    const tab = await client.tabGet!("w1:t1");
+
+    assert.deepEqual(calls[0].args, ["tab", "get", "w1:t1"]);
+    assert.equal(tab?.label, "VoiceVibe");
+  });
+
+  it("tabGet returns null for tab_not_found (stale parent-tab id)", async () => {
+    const errEnvelope = JSON.stringify({
+      id: "cli:tab:get",
+      error: { code: "tab_not_found", message: "tab w1:tX not found" },
+    });
+    const { exec } = fakeExec([{ stdout: errEnvelope }]);
+    const client = createHerdrClient({ exec });
+
+    const tab = await client.tabGet!("w1:tX");
+
+    assert.equal(tab, null);
+  });
 });
