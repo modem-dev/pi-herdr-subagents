@@ -184,6 +184,8 @@ All configuration is via environment variables (set globally, or per-project via
 | `PI_HERDR_PI_BIN` | first executable `pi` on `PATH` | Absolute path of the pi binary to launch children with (e.g. `~/.local/bin/pi`). |
 | `PI_HERDR_DIRENV` | *(unset)* | Set to `0` to disable the `direnv exec` autodetect (see below). |
 | `PI_HERDR_HOLD_OPEN_SECS` | `15` | Startup-crash window: if the child exits nonzero within this many seconds, the pane is held open for post-mortem (`0` disables). |
+| `PI_HERDR_PLACEMENT` | `split` | Pane placement for spawned subagents: `overlay`, `split`, `tab`, or `zoomed`. Non-split placements give each child its own tab/surface; `--target-pane`/`--direction` are only sent for `split`. Invalid values fall back to `split`. |
+| `PI_HERDR_LABEL_PREFIX` | *(unset)* | Prefix applied to each subagent's sidebar pane label and — for non-split placements — its tab title (e.g. `🤖 `), so subagent panes/tabs are easy to tell apart from regular pi panes. |
 | `HERDR_BIN` | `herdr` on `PATH` | herdr binary override. |
 
 ### direnv / devenv / varlock repos
@@ -293,8 +295,10 @@ Useful tricks:
 - **No stall detection** (yet): a child that is alive but spinning its wheels is not flagged;
   herdr's sidebar agent states are the current signal. Could be reintroduced on
   `pane.agent_status_changed`.
-- **Single-workspace topology**: children split beside the orchestrator pane
-  (`--target-pane $HERDR_PANE_ID --direction right`); multi-workspace layouts are unexplored.
+- **Single-workspace topology**: children open beside the orchestrator pane by default
+  (`--placement split --target-pane $HERDR_PANE_ID --direction right`); `PI_HERDR_PLACEMENT=tab`
+  gives each child its own tab in the orchestrator's workspace instead. Multi-workspace layouts
+  are unexplored.
 - **Hybrid client**: request/response goes through the `herdr` CLI; only `events.subscribe`
   uses a raw socket connection. The all-socket design (and when to switch) is sketched in
   [`docs/full-socket-client.md`](docs/full-socket-client.md).

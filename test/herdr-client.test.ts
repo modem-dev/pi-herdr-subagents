@@ -1,9 +1,10 @@
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
   createHerdrClient,
   HERDR_PLUGIN_ARGV_ENTRYPOINT,
+  panePlacement,
   type ExecFn,
 } from "../src/herdr/client.ts";
 
@@ -45,6 +46,18 @@ const pluginPaneEnvelope = JSON.stringify({
 });
 
 describe("HerdrClient", () => {
+  // Hermeticity: pin the default (unset) placement for every test unless a
+  // test opts into a value; restore the ambient env afterwards.
+  let prevPlacement: string | undefined;
+  beforeEach(() => {
+    prevPlacement = process.env.PI_HERDR_PLACEMENT;
+    delete process.env.PI_HERDR_PLACEMENT;
+  });
+  afterEach(() => {
+    if (prevPlacement === undefined) delete process.env.PI_HERDR_PLACEMENT;
+    else process.env.PI_HERDR_PLACEMENT = prevPlacement;
+  });
+
   it("paneStart builds the plugin pane command with the launch script env", async () => {
     const { exec, calls } = fakeExec([{ stdout: pluginPaneEnvelope }]);
     const client = createHerdrClient({ exec });
@@ -398,5 +411,84 @@ describe("HerdrClient", () => {
         else process.env.HERDR_BIN = prev;
       }
     }
+  });
+
+  it("paneStart honors PI_HERDR_PLACEMENT=tab and omits split-only args", async () => {
+    process.env.PI_HERDR_PLACEMENT = "tab"; // afterEach restores the ambient value
+    const { exec, calls } = fakeExec([{ stdout: pluginPaneEnvelope }]);
+    const client = createHerdrClient({ exec });
+
+    const result = await client.paneStart({
+      name: "worker-1",
+      cwd: "/tmp/project",
+      targetPaneId: "w1:p1",
+      direction: "right",
+      launchScriptFile: "/tmp/launch.sh",
+    });
+
+    assert.deepEqual(calls[0].args, [
+      "plugin",
+      "pane",
+      "open",
+      "--plugin",
+      "pi-herdr-subagents",
+      "--entrypoint",
+      "subagent",
+      "--placement",
+      "tab",
+      "--cwd",
+      "/tmp/project",
+      "--env",
+      "PI_HERDR_LAUNCH_SCRIPT=/tmp/launch.sh",
+      "--no-focus",
+    ]);
+    assert.equal(result.paneId, "w1:p2");
+  });
+
+  it("paneStart falls back to split on invalid PI_HERDR_PLACEMENT", async () => {
+    process.env.PI_HERDR_PLACEMENT = "sideways";
+    const { exec, calls } = fakeExec([{ stdout: pluginPaneEnvelope }]);
+    const client = createHerdrClient({ exec });
+
+    await client.paneStart({
+      name: "worker-1",
+      cwd: "/tmp/project",
+      targetPaneId: "w1:p1",
+      launchScriptFile: "/tmp/launch.sh",
+    });
+
+    const args = calls[0].args;
+    assert.equal(args[args.indexOf("--placement") + 1], "split");
+    assert.notEqual(args.indexOf("--target-pane"), -1);
+    assert.notEqual(args.indexOf("--direction"), -1);
+  });
+
+  it("panePlacement normalizes and validates PI_HERDR_PLACEMENT", () => {
+    process.env.PI_HERDR_PLACEMENT = "  TAB ";
+    assert.equal(panePlacement(), "tab");
+    process.env.PI_HERDR_PLACEMENT = "zoomed";
+    assert.equal(panePlacement(), "zoomed");
+    process.env.PI_HERDR_PLACEMENT = "overlay";
+    assert.equal(panePlacement(), "overlay");
+    delete process.env.PI_HERDR_PLACEMENT;
+    assert.equal(panePlacement(), "split");
+  });
+
+  it("tabRename shells out to tab rename and only demands exit 0", async () => {
+    const { exec, calls } = fakeExec([{ stdout: "" }]);
+    const client = createHerdrClient({ exec });
+
+    await client.tabRename!("w1:t1", "🤖 worker-1");
+
+    assert.deepEqual(calls[0].args, ["tab", "rename", "w1:t1", "🤖 worker-1"]);
+  });
+
+  it("tabRename no-ops on an empty tab id", async () => {
+    const { exec, calls } = fakeExec([]);
+    const client = createHerdrClient({ exec });
+
+    await client.tabRename!("", "ignored");
+
+    assert.equal(calls.length, 0);
   });
 });

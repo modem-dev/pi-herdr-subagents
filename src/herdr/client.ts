@@ -49,11 +49,26 @@ export const HERDR_PLUGIN_ENTRYPOINT = "subagent";
 export const HERDR_PLUGIN_ARGV_ENTRYPOINT = "argv";
 export const MIN_HERDR_VERSION = "0.8.2";
 
+const ALLOWED_PLACEMENTS = ["overlay", "split", "tab", "zoomed"] as const;
+
+/**
+ * Pane placement for spawned subagents, from PI_HERDR_PLACEMENT
+ * (overlay|split|tab|zoomed). Defaults to "split" (beside the orchestrator).
+ * Non-split placements give each child its own tab/surface; invalid values
+ * fall back to "split".
+ */
+export function panePlacement(): string {
+  const raw = process.env.PI_HERDR_PLACEMENT?.trim().toLowerCase();
+  if (raw && (ALLOWED_PLACEMENTS as readonly string[]).includes(raw)) return raw;
+  return "split";
+}
+
 export interface HerdrClient {
   /**
-   * Split a plugin-owned pane beside the orchestrator and dispatch one generated
-   * launch script through the plugin's fixed argv entrypoint. No shell typing,
-   * launch race, or per-call argv support is required from Herdr.
+   * Open a plugin-owned pane (placement via PI_HERDR_PLACEMENT, default split
+   * beside the orchestrator) and dispatch one generated launch script through
+   * the plugin's fixed argv entrypoint. No shell typing, launch race, or
+   * per-call argv support is required from Herdr.
    */
   paneStart(p: {
     name: string;
@@ -64,6 +79,8 @@ export interface HerdrClient {
     launchScriptFile: string;
   }): Promise<PaneStartResult>;
   paneRename(paneId: string, label: string): Promise<void>;
+  /** Best-effort tab title rename. Optional so custom client mocks stay valid. */
+  tabRename?(tabId: string, label: string): Promise<void>;
   paneGet(paneId: string): Promise<PaneInfo | null>;
   paneRead(paneId: string, lines: number, signal?: AbortSignal): Promise<string | null>;
   paneList(): Promise<PaneInfo[]>;
@@ -186,10 +203,14 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
         "--entrypoint",
         HERDR_PLUGIN_ENTRYPOINT,
         "--placement",
-        "split",
+        panePlacement(),
       ];
-      if (p.targetPaneId) args.push("--target-pane", p.targetPaneId);
-      args.push("--direction", p.direction ?? "right");
+      if (panePlacement() === "split") {
+        // target-pane/direction anchor split placement only; other placements
+        // (tab/overlay/zoomed) may reject them.
+        if (p.targetPaneId) args.push("--target-pane", p.targetPaneId);
+        args.push("--direction", p.direction ?? "right");
+      }
       args.push("--cwd", p.cwd);
       for (const [key, value] of Object.entries({
         ...p.env,
@@ -222,6 +243,15 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
       // Best-effort sidebar label; success is exit 0 (output shape is not
       // relied upon so this stays compatible across herdr versions).
       await execHerdr(["pane", "rename", paneId, label]);
+    },
+
+    async tabRename(tabId, label) {
+      // Best-effort tab title; child tabs otherwise inherit the generic
+      // terminal title ("π - <cwd>") and are hard to tell apart in the tab
+      // bar. Only meaningful when the child got its own tab (non-split
+      // placement) — callers gate on placement.
+      if (!tabId) return;
+      await execHerdr(["tab", "rename", tabId, label]);
     },
 
     async paneGet(paneId) {

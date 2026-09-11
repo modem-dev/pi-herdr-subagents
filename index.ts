@@ -34,6 +34,7 @@ import {
   createHerdrClient,
   HERDR_PLUGIN_ID,
   MIN_HERDR_VERSION,
+  panePlacement,
   type HerdrClient,
 } from "./src/herdr/client.ts";
 import { createHerdrEventStream } from "./src/herdr/events.ts";
@@ -563,8 +564,16 @@ async function executeSubagentSpawn(
     const message = error?.message ?? String(error);
     return errorResult(`Failed to start herdr pane for "${params.name}": ${message}`, message);
   }
-  // Best-effort sidebar label; the pane is already running the subagent.
-  await deps.client.paneRename(started.paneId, params.name).catch(() => {});
+  // Best-effort labels: the pane label always (sidebar); the tab title only
+  // when the child got its own tab (non-split placement), since a split child
+  // shares the orchestrator's tab and renaming it would mislabel the
+  // orchestrator. PI_HERDR_LABEL_PREFIX (e.g. "🤖 ") makes subagent
+  // panes/tabs easy to tell apart from regular pi panes.
+  const label = `${process.env.PI_HERDR_LABEL_PREFIX ?? ""}${params.name}`;
+  await deps.client.paneRename(started.paneId, label).catch(() => {});
+  if (panePlacement() !== "split") {
+    await deps.client.tabRename?.(started.tabId, label).catch(() => {});
+  }
 
   const running: RunningSubagent = {
     id: plan.id,
@@ -785,8 +794,16 @@ async function executeSubagentResume(
     const message = error?.message ?? String(error);
     return errorResult(`Failed to start herdr pane for "${plan.name}": ${message}`, message);
   }
-  // Best-effort sidebar label; the pane is already running the subagent.
-  await deps.client.paneRename(started.paneId, plan.name).catch(() => {});
+  // Best-effort labels: the pane label always (sidebar); the tab title only
+  // when the child got its own tab (non-split placement), since a split child
+  // shares the orchestrator's tab and renaming it would mislabel the
+  // orchestrator. PI_HERDR_LABEL_PREFIX (e.g. "🤖 ") makes subagent
+  // panes/tabs easy to tell apart from regular pi panes.
+  const label = `${process.env.PI_HERDR_LABEL_PREFIX ?? ""}${plan.name}`;
+  await deps.client.paneRename(started.paneId, label).catch(() => {});
+  if (panePlacement() !== "split") {
+    await deps.client.tabRename?.(started.tabId, label).catch(() => {});
+  }
 
   const running: RunningSubagent = {
     id: plan.id,
