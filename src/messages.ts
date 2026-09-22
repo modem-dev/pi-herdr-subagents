@@ -20,6 +20,7 @@ import { keyHint } from "@mariozechner/pi-coding-agent";
 import { Box, Text } from "@mariozechner/pi-tui";
 
 import type { ContextUsageSnapshot } from "./context-usage.ts";
+import { isHerdrAgentSessionFile } from "./herdr-agent.ts";
 import type { RunningSubagent, SubagentOutcome } from "./watcher.ts";
 
 export interface SubagentSteerMessage {
@@ -37,7 +38,9 @@ export function formatElapsed(seconds: number): string {
 }
 
 function sessionRef(sessionFile: string | undefined): string {
-  return sessionFile ? `\n\nSession: ${sessionFile}\nResume: pi --session ${sessionFile}` : "";
+  if (!sessionFile) return "";
+  if (isHerdrAgentSessionFile(sessionFile)) return `\n\nAgent report: ${sessionFile}`;
+  return `\n\nSession: ${sessionFile}\nResume: pi --session ${sessionFile}`;
 }
 
 function contextUsageLine(usage: ContextUsageSnapshot | null | undefined): string {

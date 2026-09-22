@@ -69,11 +69,7 @@ describe("HerdrClient", () => {
       "--entrypoint",
       "subagent",
       "--placement",
-      "split",
-      "--target-pane",
-      "w1:p1",
-      "--direction",
-      "right",
+      "tab",
       "--cwd",
       "/tmp/project",
       "--env",
@@ -88,7 +84,7 @@ describe("HerdrClient", () => {
     });
   });
 
-  it("paneStart defaults direction right and omits --target-pane without a target", async () => {
+  it("paneStart opens a tab and omits split-only --target-pane/--direction", async () => {
     const { exec, calls } = fakeExec([{ stdout: pluginPaneEnvelope }]);
     const client = createHerdrClient({ exec });
 
@@ -99,8 +95,9 @@ describe("HerdrClient", () => {
     });
 
     const args = calls[0].args;
+    assert.equal(args[args.indexOf("--placement") + 1], "tab");
     assert.equal(args.indexOf("--target-pane"), -1);
-    assert.equal(args[args.indexOf("--direction") + 1], "right");
+    assert.equal(args.indexOf("--direction"), -1);
   });
 
   it("paneStart passes additional env vars before the dispatcher env", async () => {
@@ -163,6 +160,29 @@ describe("HerdrClient", () => {
     await client.paneRename("w1:p2", "Worker");
 
     assert.deepEqual(calls[0].args, ["pane", "rename", "w1:p2", "Worker"]);
+  });
+
+  it("tabRename shells out to tab rename and only demands exit 0", async () => {
+    const { exec, calls } = fakeExec([{ stdout: "" }]);
+    const client = createHerdrClient({ exec });
+
+    await client.tabRename("w1:t1", "Worker");
+
+    assert.deepEqual(calls[0].args, ["tab", "rename", "w1:t1", "Worker"]);
+  });
+
+  it("agentPrompt shells out to agent prompt with the message text", async () => {
+    const { exec, calls } = fakeExec([{ stdout: "" }]);
+    const client = createHerdrClient({ exec });
+
+    await client.agentPrompt("w1:p2", "keep going, also check the edge case");
+
+    assert.deepEqual(calls[0].args, [
+      "agent",
+      "prompt",
+      "w1:p2",
+      "keep going, also check the edge case",
+    ]);
   });
 
   it("error envelope surfaces code+message", async () => {

@@ -397,12 +397,60 @@ describe("launch plan: structure", () => {
     assert.ok(p.sessionFile.includes(join(fx.agentDir, "sessions")));
   });
 
-  it("rejects cli: claude with a clear unsupported error", () => {
+  it("rejects unknown CLIs with a clear unsupported error", () => {
     const fx = makeFixture();
     assert.throws(
-      () => plan(fx, { agent: "cc" }, { cli: "claude" }),
+      () => plan(fx, { agent: "cx" }, { cli: "notanagent" }),
       /not supported by pi-herdr-subagents/,
     );
+  });
+
+  it("herdr agent kinds launch the interactive CLI and hand the task to the driver", () => {
+    const fx = makeFixture();
+    const p = plan(fx, { agent: "cc", task: "open chrome" }, {
+      cli: "codex",
+      cliArgs: "--model  gpt-5",
+      model: "anthropic/ignored",
+      body: "You are a browser agent.",
+      systemPromptMode: "append",
+    });
+    assert.deepEqual(p.piArgv, ["codex", "--model", "gpt-5"]);
+    assert.equal(p.paneStart.name, `${p.name} - codex`);
+    assert.equal(p.autoExit, true);
+    assert.equal(p.interactive, false);
+    assert.equal(p.seedSession, null);
+    assert.ok(p.sessionFile.endsWith(".agent.jsonl"));
+    assert.ok(p.herdrAgent);
+    assert.equal(p.herdrAgent.kind, "codex");
+    assert.equal(p.herdrAgent.promptText, `Read ${p.taskArtifactFile} and complete the task it describes.`);
+    const task = p.files.find((f) => f.path === p.taskArtifactFile)!.content;
+    assert.match(task, /You are a browser agent\./);
+    assert.match(task, /open chrome/);
+    assert.ok(task.includes(`write your final report (what you did, what you found) to ${p.herdrAgent.resultFile}`));
+    assert.doesNotMatch(task, /subagent_done/);
+    assert.ok(scriptOf(p).includes("'codex' '--model' 'gpt-5'"));
+  });
+
+  it("pi children carry no herdr agent driver and keep the plain tab label", () => {
+    const p = plan(makeFixture());
+    assert.equal(p.herdrAgent, null);
+    assert.equal(p.paneStart.name, p.name);
+  });
+
+  it("the cli tool param picks the agent without an agent def, and overrides the def's cli", () => {
+    const fx = makeFixture();
+    const direct = plan(fx, { cli: "claude" });
+    assert.deepEqual(direct.piArgv, ["claude"]);
+    assert.equal(direct.herdrAgent?.kind, "claude");
+
+    const backToPi = plan(fx, { cli: "pi" }, { cli: "claude" });
+    assert.equal(backToPi.herdrAgent, null);
+    assert.equal(backToPi.piArgv[0], fx.piBin);
+  });
+
+  it("cli: claude refuses fork mode", () => {
+    const fx = makeFixture();
+    assert.throws(() => plan(fx, { agent: "cc", fork: true }, { cli: "claude" }), /cannot fork/);
   });
 
   it("generated script passes bash -n", () => {

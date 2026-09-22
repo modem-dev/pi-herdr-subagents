@@ -125,6 +125,10 @@ export function getNewEntries(sessionFile: string, afterLine: number): SessionEn
 export function findLastAssistantMessage(entries: SessionEntry[]): string | null {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
+    // herdr-driven agents (cli: claude, codex, …): the driver's result line is the report.
+    if (entry.type === "result" && typeof entry.result === "string" && entry.result.trim()) {
+      return entry.result;
+    }
     if (entry.type !== "message") continue;
     const msg = entry as MessageEntry;
     if (msg.message.role !== "assistant") continue;

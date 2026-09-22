@@ -37,12 +37,15 @@ import {
   resolveLaunchBehavior,
   resolveSubagentPaths,
 } from "./agents.ts";
+import { HERDR_AGENT_KINDS, HERDR_AGENT_SESSION_SUFFIX } from "./herdr-agent.ts";
 
 /** `subagent` tool params consulted by launch planning. */
 export interface SubagentLaunchParams {
   name: string;
   task: string;
   agent?: string;
+  /** Which coding agent runs the task: "pi" (default) or a herdr agent kind. Overrides the agent def's cli. */
+  cli?: string;
   cwd?: string;
   model?: string;
   tools?: string;
@@ -95,6 +98,7 @@ export interface LaunchPlan {
   } | null;
   /** Arguments for HerdrClient.paneStart(). */
   paneStart: {
+    /** Tab/pane label: the subagent name, plus the agent kind for non-pi children ("find date - claude"). */
     name: string;
     cwd: string;
     /** Orchestrator's own pane (HERDR_PANE_ID) — the new pane splits off it. */
@@ -102,8 +106,10 @@ export interface LaunchPlan {
     direction?: "right" | "down";
     launchScriptFile: string;
   };
-  /** The unescaped pi invocation embedded in the wrapper script (piArgv[0] = binary). */
+  /** The unescaped child invocation embedded in the wrapper script (piArgv[0] = binary). */
   piArgv: string[];
+  /** Set for non-pi children: what the herdr agent driver needs after the pane starts. */
+  herdrAgent: { kind: string; promptText: string; resultFile: string } | null;
   interactive: boolean;
   autoExit: boolean;
   /** Startup crash hold-open window in seconds (0 = disabled). */
@@ -298,10 +304,15 @@ export function buildLaunchPlan(
   agentDefs: AgentDefaults | null,
   ctx: LaunchPlanContext,
 ): LaunchPlan {
-  if (agentDefs?.cli && agentDefs.cli !== "pi") {
+  // Non-pi children (cli: claude, codex, …) run interactively and are driven
+  // through herdr's agent layer (src/herdr-agent.ts): one prompted task turn,
+  // no subagent_done/caller_ping, no pi session to fork or resume.
+  const cli = params.cli ?? agentDefs?.cli ?? "pi";
+  const agentKind = cli !== "pi" ? cli : null;
+  if (agentKind && !HERDR_AGENT_KINDS.has(agentKind)) {
     throw new Error(
-      `Agent "${params.agent ?? params.name}" uses cli: ${agentDefs.cli}, which is ` +
-        "not supported by pi-herdr-subagents (pi children only).",
+      `Agent "${params.agent ?? params.name}" uses cli: ${agentKind}, which is ` +
+        `not supported by pi-herdr-subagents (pi, or a herdr agent kind: ${[...HERDR_AGENT_KINDS].join(", ")}).`,
     );
   }
 
@@ -313,8 +324,8 @@ export function buildLaunchPlan(
   const effectiveTools = params.tools ?? agentDefs?.tools;
   const effectiveSkills = params.skills ?? agentDefs?.skills;
   const effectiveThinking = agentDefs?.thinking;
-  const interactive = resolveEffectiveInteractive(params, agentDefs);
-  const autoExit = agentDefs?.autoExit ?? false;
+  const interactive = agentKind ? false : resolveEffectiveInteractive(params, agentDefs);
+  const autoExit = agentDefs?.autoExit ?? Boolean(agentKind);
 
   const artifactDir = getArtifactDir(ctx.sessionDir, ctx.sessionId);
   const { effectiveCwd, localAgentDir, effectiveAgentDir } = resolveSubagentPaths(
@@ -333,10 +344,18 @@ export function buildLaunchPlan(
     Math.random().toString(16).slice(2, 10),
     Math.random().toString(16).slice(2, 6),
   ].join("-");
-  const sessionFile = join(childSessionDir, `${sessionTimestamp}_${uuid}.jsonl`);
-
   const launchBehavior = resolveLaunchBehavior(params, agentDefs);
-  const seedSession = launchBehavior.seededSessionMode
+  if (agentKind && launchBehavior.taskDelivery === "direct") {
+    throw new Error(`Agent "${params.agent ?? params.name}" uses cli: ${agentKind}, which cannot fork a pi session.`);
+  }
+  // herdr-driven agents: the "session file" only receives the driver's result
+  // line, so the watcher's sidecars and summary extraction work unchanged. It
+  // shares the task artifact's dir, which the executor creates before launch.
+  const sessionFile = agentKind
+    ? join(artifactDir, "context", `${safeName(params.name)}-${id}${HERDR_AGENT_SESSION_SUFFIX}`)
+    : join(childSessionDir, `${sessionTimestamp}_${uuid}.jsonl`);
+
+  const seedSession = launchBehavior.seededSessionMode && !agentKind
     ? {
         mode: launchBehavior.seededSessionMode,
         parentSessionFile: ctx.parentSessionFile,
@@ -346,15 +365,20 @@ export function buildLaunchPlan(
     : null;
 
   // ── Task message (wrapper instructions only for blank-session modes) ──
-  const modeHint = autoExit
+  const modeHint = autoExit || agentKind
     ? "Complete your task autonomously."
     : "Complete your task. When finished, call the subagent_done tool. The user can interact with you at any time.";
-  const summaryInstruction = autoExit
+  const resultFile = agentKind
+    ? join(artifactDir, "context", `${safeName(params.name)}-${id}.result.md`)
+    : null;
+  const summaryInstruction = resultFile
+    ? `When finished, write your final report (what you did, what you found) to ${resultFile}, then stop.`
+    : autoExit
     ? "Your FINAL assistant message should summarize what you accomplished."
     : "Your FINAL assistant message (before calling subagent_done or before the user exits) should summarize what you accomplished.";
   const identity = agentDefs?.body ?? params.systemPrompt ?? null;
   const systemPromptMode = agentDefs?.systemPromptMode;
-  const identityInSystemPrompt = Boolean(systemPromptMode && identity);
+  const identityInSystemPrompt = Boolean(systemPromptMode && identity && !agentKind);
   const roleBlock = identity && !identityInSystemPrompt ? `\n\n${identity}` : "";
   const fullTask = launchBehavior.inheritsConversationContext
     ? params.task
@@ -364,50 +388,68 @@ export function buildLaunchPlan(
   const artifactTimestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const name = safeName(params.name);
 
-  // ── pi argv ──
-  const piBin = env.PI_HERDR_PI_BIN ?? (ctx.resolvePiBin ?? defaultResolvePiBin)(env);
-  const piArgv: string[] = [piBin, "--session", sessionFile];
-
-  const subagentDonePath = ctx.subagentDonePath ?? join(PACKAGE_ROOT, "subagent-done.ts");
-  piArgv.push("-e", subagentDonePath);
-
-  if (effectiveModel) {
-    piArgv.push("--model", effectiveThinking ? `${effectiveModel}:${effectiveThinking}` : effectiveModel);
-  }
-
-  // System prompt via file — pi's --system-prompt/--append-system-prompt
-  // auto-detect file paths, avoiding shell escaping issues with multiline content.
+  let piArgv: string[];
   let syspromptFile: string | null = null;
-  if (identityInSystemPrompt && identity) {
-    syspromptFile = join(artifactDir, "context", `${name}-sysprompt-${artifactTimestamp}.md`);
-    files.push({ path: syspromptFile, content: identity });
-    piArgv.push(
-      systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt",
-      syspromptFile,
-    );
-  }
-
-  const toolAllowlist = buildSubagentToolAllowlist(effectiveTools);
-  if (toolAllowlist) {
-    piArgv.push("--tools", toolAllowlist);
-  }
-
-  // Task delivery: fork inherits the conversation → direct arg; blank-session
-  // modes get the artifact-backed handoff so wrapper instructions arrive as
-  // the initial user message.
   let taskArtifactFile: string | null = null;
-  let taskArg: string;
-  if (launchBehavior.taskDelivery === "direct") {
-    taskArg = fullTask;
-  } else {
+  let herdrAgent: LaunchPlan["herdrAgent"] = null;
+  if (agentKind) {
+    // ── herdr agent argv ── the interactive TUI itself; model, tools etc. are
+    // agent-specific flags, so they come from cli-args, not pi's fields.
+    // ponytail: binary = kind name and whitespace-split args; add cli-bin /
+    // quoting when an agent (e.g. cursor → cursor-agent) needs it.
+    piArgv = [agentKind, ...(agentDefs?.cliArgs ?? "").split(/\s+/).filter(Boolean)];
     taskArtifactFile = join(artifactDir, "context", `${name}-${artifactTimestamp}.md`);
     files.push({ path: taskArtifactFile, content: fullTask });
-    taskArg = `@${taskArtifactFile}`;
-  }
+    herdrAgent = {
+      kind: agentKind,
+      // One line: multi-line text would be submitted early by some TUIs.
+      promptText: `Read ${taskArtifactFile} and complete the task it describes.`,
+      resultFile: resultFile!,
+    };
+  } else {
+    // ── pi argv ──
+    const piBin = env.PI_HERDR_PI_BIN ?? (ctx.resolvePiBin ?? defaultResolvePiBin)(env);
+    piArgv = [piBin, "--session", sessionFile];
 
-  piArgv.push(
-    ...buildPiPromptArgs({ effectiveSkills, taskDelivery: launchBehavior.taskDelivery, taskArg }),
-  );
+    const subagentDonePath = ctx.subagentDonePath ?? join(PACKAGE_ROOT, "subagent-done.ts");
+    piArgv.push("-e", subagentDonePath);
+
+    if (effectiveModel) {
+      piArgv.push("--model", effectiveThinking ? `${effectiveModel}:${effectiveThinking}` : effectiveModel);
+    }
+
+    // System prompt via file — pi's --system-prompt/--append-system-prompt
+    // auto-detect file paths, avoiding shell escaping issues with multiline content.
+    if (identityInSystemPrompt && identity) {
+      syspromptFile = join(artifactDir, "context", `${name}-sysprompt-${artifactTimestamp}.md`);
+      files.push({ path: syspromptFile, content: identity });
+      piArgv.push(
+        systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt",
+        syspromptFile,
+      );
+    }
+
+    const toolAllowlist = buildSubagentToolAllowlist(effectiveTools);
+    if (toolAllowlist) {
+      piArgv.push("--tools", toolAllowlist);
+    }
+
+    // Task delivery: fork inherits the conversation → direct arg; blank-session
+    // modes get the artifact-backed handoff so wrapper instructions arrive as
+    // the initial user message.
+    let taskArg: string;
+    if (launchBehavior.taskDelivery === "direct") {
+      taskArg = fullTask;
+    } else {
+      taskArtifactFile = join(artifactDir, "context", `${name}-${artifactTimestamp}.md`);
+      files.push({ path: taskArtifactFile, content: fullTask });
+      taskArg = `@${taskArtifactFile}`;
+    }
+
+    piArgv.push(
+      ...buildPiPromptArgs({ effectiveSkills, taskDelivery: launchBehavior.taskDelivery, taskArg }),
+    );
+  }
 
   // ── Curated env exports (never a full env dump) ──
   const exports: string[] = [];
@@ -463,13 +505,14 @@ export function buildLaunchPlan(
     files,
     seedSession,
     paneStart: {
-      name: params.name,
+      name: agentKind ? `${params.name} - ${agentKind}` : params.name,
       cwd: targetCwd,
       targetPaneId: env.HERDR_PANE_ID,
       direction: "right",
       launchScriptFile,
     },
     piArgv,
+    herdrAgent,
     interactive,
     autoExit,
     holdOpenSecs,

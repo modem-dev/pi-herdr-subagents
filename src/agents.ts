@@ -40,6 +40,8 @@ export interface AgentDefaults {
   sessionMode?: SubagentSessionMode;
   cwd?: string;
   cli?: string;
+  /** Extra argv for non-pi CLIs, whitespace-split (e.g. `--chrome`). */
+  cliArgs?: string;
   body?: string;
   disableModelInvocation?: boolean;
 }
@@ -62,6 +64,7 @@ export const SPAWNING_TOOLS = new Set([
   "subagent_interrupt",
   "subagents_list",
   "subagent_resume",
+  "subagent_clis",
 ]);
 
 /**
@@ -143,6 +146,7 @@ export function parseAgentDefinition(
     sessionMode: parseSessionMode(getFrontmatterValue(frontmatter, "session-mode")),
     cwd: getFrontmatterValue(frontmatter, "cwd"),
     cli: getFrontmatterValue(frontmatter, "cli"),
+    cliArgs: getFrontmatterValue(frontmatter, "cli-args"),
     body: body || undefined,
     disableModelInvocation:
       getFrontmatterValue(frontmatter, "disable-model-invocation")?.toLowerCase() === "true",

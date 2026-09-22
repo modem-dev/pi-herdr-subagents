@@ -649,7 +649,7 @@ describe("index: subagent tool", () => {
     mkdirSync(join(fx.agentDir, "agents"), { recursive: true });
     writeFileSync(
       join(fx.agentDir, "agents", "claudey.md"),
-      "---\nname: claudey\ncli: claude\n---\nBody\n",
+      "---\nname: claudey\ncli: notanagent\n---\nBody\n",
     );
 
     __test__.setDeps({ client: makeFakeClient(), createStream: () => makeFakeStream() as any });

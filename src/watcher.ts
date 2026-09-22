@@ -42,6 +42,8 @@ export interface RunningSubagent {
   interactive: boolean;
   autoExit: boolean;
   abortController?: AbortController;
+  /** Set by subagent_interrupt; consumed by the herdr agent driver. */
+  interruptPending?: boolean;
 }
 
 export type SubagentOutcome =

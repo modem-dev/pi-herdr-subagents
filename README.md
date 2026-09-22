@@ -51,9 +51,20 @@ surface area, this extension targets herdr only and uses its native primitives d
   the running version and plugin state at session start.
 - **pi running inside a herdr pane.** herdr injects `HERDR_ENV`, `HERDR_PANE_ID`, and
   `HERDR_SOCKET_PATH` into every pane; the extension activates only when they are present.
-- **pi children only.** Claude Code / codex subagents are an explicit non-goal — if you need
-  them, use [pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents).
-  Agent defs with `cli: claude` produce a clear "unsupported" error.
+- **pi children, plus any coding agent herdr detects.** The `subagent` tool's optional `cli`
+  parameter (default `pi`), or an agent def's `cli: <kind>` frontmatter, picks the agent —
+  `claude`, `codex`, `gemini`, `opencode`, `amp`, `cursor`, … (every kind `herdr agent start
+  --help` lists) — run that agent's interactive TUI in the herdr pane and drive it through herdr's
+  agent layer: wait until herdr reports it idle, `herdr agent prompt --wait` a one-line pointer to
+  the task file, and take the report the agent was asked to write to a result file (pane text as
+  fallback). Use them for things another agent does better, e.g. Claude in Chrome — see
+  [`agents/claude-browser.md`](agents/claude-browser.md). The binary is the kind name and
+  `cli-args:` is appended verbatim (whitespace-split) — put `--model`, permission modes etc. there;
+  pi's `model:`/`tools:`/`thinking:`/`skills:` fields don't apply. The agent def body is sent as
+  part of the task. Trust, update and permission prompts show as `blocked` — answer them in the
+  pane and the run continues. One prompted turn per spawn: `subagent_steer` and
+  `subagent_interrupt` work, `subagent_resume` and `fork` don't. `auto-exit: false` leaves the pane
+  open after the report is delivered.
 - node ≥ 22.
 
 ## Setup
@@ -208,6 +219,7 @@ Set `PI_HERDR_DIRENV=0` or an explicit `PI_HERDR_LAUNCH_PREFIX` to override.
 | `subagent_resume` | Resume a previous sub-agent session in a new pane (async) |
 | `subagent_interrupt` | Send Escape to a running subagent's active turn |
 | `subagents_list` | List available agent definitions (project-local `.pi/agents/` overrides global) |
+| `subagent_clis` | List the coding agents installed here (pi + herdr-detected kinds on PATH) usable as `subagent`'s `cli`, plus agent definitions that preset one |
 
 | Command | Description |
 |---|---|
@@ -250,7 +262,8 @@ eternal "stalled" zombie** — every row below terminates the running entry with
   name/agent/elapsed/count list.
 - **Distinct user-exit phrasing.** A user quitting a child without `subagent_done` is reported
   as exactly that, not as a generic completion.
-- **pi children only.** No Claude Code CLI path, no transcript-copy machinery.
+- **Non-pi children go through herdr's agent layer**, not per-CLI adapters or transcript
+  parsing: herdr's status detection says when the turn ends; the agent writes its own report.
 - **Panes auto-close** on clean exit (held open only for startup crashes).
 - **herdr only.** No cmux/tmux/zellij/wezterm code paths.
 
