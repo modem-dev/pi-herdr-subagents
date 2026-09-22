@@ -20,6 +20,13 @@ import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "node:fs";
 
 import { writeContextUsageSidecar } from "./src/context-usage.ts";
+import {
+  firstUserText,
+  jevDecide,
+  lastTurnSummary,
+  readDeciderMode,
+  readJevKey,
+} from "./src/idle-decider.ts";
 import { getActiveSubagentCount } from "./src/runtime-state.ts";
 
 export function shouldMarkUserTookOver(agentStarted: boolean): boolean {
@@ -68,6 +75,36 @@ export function parseDeniedTools(rawValue: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/** Text of the latest assistant message that has any — what the idle decider judges. */
+export function lastAssistantText(messages: any[] | undefined): string {
+  for (let i = (messages?.length ?? 0) - 1; i >= 0; i--) {
+    const msg = messages![i];
+    if (msg?.role === "user") break; // don't judge a previous turn's message
+    if (msg?.role !== "assistant") continue;
+    const text =
+      typeof msg.content === "string"
+        ? msg.content
+        : (msg.content ?? [])
+            .filter((c: any) => c?.type === "text")
+            .map((c: any) => c.text)
+            .join("\n");
+    if (text.trim()) return text;
+  }
+  return "";
+}
+
+/** Every message in the session file, in order; undefined if the session isn't readable. */
+function sessionMessages(ctx: any): any[] | undefined {
+  try {
+    return ctx.sessionManager
+      ?.getEntries()
+      .filter((e: any) => e.type === "message")
+      .map((e: any) => e.message);
+  } catch {
+    return undefined;
+  }
+}
+
 export type ExitSidecarData =
   | { type: "done" }
   | { type: "ping"; name: string; message: string };
@@ -96,6 +133,7 @@ export default function (pi: ExtensionAPI) {
   const subagentAgent = process.env.PI_SUBAGENT_AGENT ?? "";
   const deniedToolsValue = process.env.PI_DENY_TOOLS;
   const autoExit = process.env.PI_SUBAGENT_AUTO_EXIT === "1";
+  const idleMs = Number(process.env.PI_SUBAGENT_IDLE_SECS ?? 600) * 1000;
 
   function renderWidget(ctx: { ui: { setWidget: Function } }) {
     ctx.ui.setWidget(
@@ -152,6 +190,8 @@ export default function (pi: ExtensionAPI) {
   let agentStarted = false;
   let contextUsageWritten = false;
   let terminalSidecarWritten = false;
+  let inputSinceAgentEnd = false;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   function signalTerminalSidecar(data: ExitSidecarData): void {
     if (terminalSidecarWritten) return;
@@ -198,6 +238,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("input", () => {
+    inputSinceAgentEnd = true;
+    clearTimeout(idleTimer);
     // Ignore the initial task message that starts an autonomous subagent.
     // Only inputs after the first agent run has started count as user takeover.
     if (!shouldMarkUserTookOver(agentStarted)) return;
@@ -206,13 +248,39 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_start", () => {
     agentStarted = true;
+    // A new turn without input (e.g. a nested subagent result) isn't idle.
+    clearTimeout(idleTimer);
   });
 
-  pi.on("agent_end", (event, ctx) => {
+  pi.on("agent_end", async (event, ctx) => {
     const messages = (event as any).messages as any[] | undefined;
-    const shouldExit =
-      autoExit &&
-      shouldAutoExitOnAgentEnd(userTookOver, messages, getActiveSubagentCount());
+    const turnSettled = shouldAutoExitOnAgentEnd(userTookOver, messages, getActiveSubagentCount());
+    let shouldExit = autoExit && turnSettled;
+
+    // Let Jev decide done vs. waiting-on-the-user (src/idle-decider.ts), except
+    // for interactive turns the user started themselves: they're at the pane.
+    // Mode "off", no key, or no answer → plain autoExit behaviour.
+    const text = lastAssistantText(messages);
+    const key = readDeciderMode() === "jev" ? readJevKey() : undefined;
+    if (key && turnSettled && text && !terminalSidecarWritten && (autoExit || !userTookOver)) {
+      inputSinceAgentEnd = false;
+      // event.messages holds only this run; the brief and a retried turn's tool
+      // results live in the session.
+      const history = sessionMessages(ctx) ?? messages;
+      const input = { finalMessage: text.trim(), lastTurn: lastTurnSummary(history), task: firstUserText(history) };
+      const done = await jevDecide(key, input, process.env.PI_JEV_URL || undefined);
+      // Input during the await (user or subagent_steer) started a new turn — never kill it.
+      shouldExit = (done ?? shouldExit) && !inputSinceAgentEnd;
+      // An autonomous parent is waiting on a pane kept open. If nobody answers,
+      // give up and report done — a wrong exit is cheap, the parent can resume.
+      if (done === false && autoExit && !inputSinceAgentEnd) {
+        idleTimer = setTimeout(() => {
+          snapshotContextUsage(ctx);
+          signalTerminalSidecar({ type: "done" });
+          ctx.shutdown();
+        }, idleMs);
+      }
+    }
 
     if (shouldExit) {
       // Write the .exit sidecar so the watcher classifies this as a proper
@@ -236,6 +304,7 @@ export default function (pi: ExtensionAPI) {
   // Do not overwrite a snapshot already published by another terminal path.
   pi.on("session_shutdown", (_event, ctx) => {
     snapshotContextUsage(ctx, true);
+    clearTimeout(idleTimer);
   });
 
   // Toggle expand/collapse with Ctrl+J

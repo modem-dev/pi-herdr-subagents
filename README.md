@@ -185,6 +185,31 @@ All configuration is via environment variables (set globally, or per-project via
 | `PI_HERDR_DIRENV` | *(unset)* | Set to `0` to disable the `direnv exec` autodetect (see below). |
 | `PI_HERDR_HOLD_OPEN_SECS` | `15` | Startup-crash window: if the child exits nonzero within this many seconds, the pane is held open for post-mortem (`0` disables). |
 | `HERDR_BIN` | `herdr` on `PATH` | herdr binary override. |
+| `PI_SUBAGENT_IDLE_SECS` | `600` | An auto-exit child that the decider kept open exits as done after this long with no input. |
+
+### Idle decision: done or waiting on you? (experimental)
+
+When a child's turn ends cleanly, [TypeSafe Jev](https://docs.typesafe.ai) decides whether it's
+finished or waiting on you. It gets the task brief, the final reply, and a one-line summary of the
+last turn's tool outcomes. If Jev says finished, the child exits with `completed`, **even if
+`auto-exit` is off**. If it says blocked or unsure, the pane stays open, even when `auto-exit` is
+on. An auto-exit child kept open this way exits as done after `PI_SUBAGENT_IDLE_SECS` with no
+input, so an unattended parent never waits forever. Interactive turns you started yourself skip
+the decider.
+
+The decider leans toward exiting. A wrong exit is cheap, because the parent can resume the
+subagent, while a wrong keep-open stalls the parent. On ~200 replayed subagent sessions plus
+hand-written edge cases, it kept no finished report open.
+
+To set it up, run `/subagent-decider key` and paste your [TypeSafe](https://docs.typesafe.ai) API
+key. The prompt masks the key and checks it with TypeSafe. If TypeSafe accepts it, the key is
+saved to `~/.pi/subagent-decider/typesafe-key`, readable only by you. Subagents don't inherit your
+shell's environment, so a `TYPESAFE_API_KEY` exported there won't reach them.
+
+`/subagent-decider off` turns it off. Nothing is then sent to api.typesafe.ai, and the `auto-exit`
+flag decides, as it also does without a key or when Jev doesn't answer within 3s.
+`/subagent-decider jev` turns it back on. Running `/subagent-decider` with no argument shows the
+current mode. Running children pick up a change at their next decision.
 
 ### direnv / devenv / varlock repos
 
@@ -214,6 +239,7 @@ Set `PI_HERDR_DIRENV=0` or an explicit `PI_HERDR_LAUNCH_PREFIX` to override.
 | `/subagent <agent> [task]` | Spawn a named agent directly |
 | `/subagents-init [global\|project]` | Copy missing example agent definitions into user-owned config |
 | `/iterate [task]` | Fork the current session into a subagent for focused work |
+| `/subagent-decider [jev\|off\|key]` | Turn the idle decider on or off, or save its API key (see [Idle decision](#idle-decision-done-or-waiting-on-you-experimental)) |
 
 Agent definitions in project-local `.pi/agents/*.md` or global `~/.pi/agent/agents/*.md` are read
 with the same frontmatter semantics as pi-interactive-subagents (name, description, tools,

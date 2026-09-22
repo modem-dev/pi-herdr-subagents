@@ -64,11 +64,13 @@ export interface HerdrClient {
     launchScriptFile: string;
   }): Promise<PaneStartResult>;
   paneRename(paneId: string, label: string): Promise<void>;
+  tabRename(tabId: string, label: string): Promise<void>;
   paneGet(paneId: string): Promise<PaneInfo | null>;
   paneRead(paneId: string, lines: number, signal?: AbortSignal): Promise<string | null>;
   paneList(): Promise<PaneInfo[]>;
   paneClose(paneId: string): Promise<void>;
   paneSendKeys(paneId: string, keys: string[]): Promise<void>;
+  agentPrompt(paneId: string, text: string): Promise<void>;
   ping(): Promise<PingResult>;
   pluginGet(pluginId: string): Promise<PluginInfo | null>;
 }
@@ -186,10 +188,8 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
         "--entrypoint",
         HERDR_PLUGIN_ENTRYPOINT,
         "--placement",
-        "split",
+        "tab",
       ];
-      if (p.targetPaneId) args.push("--target-pane", p.targetPaneId);
-      args.push("--direction", p.direction ?? "right");
       args.push("--cwd", p.cwd);
       for (const [key, value] of Object.entries({
         ...p.env,
@@ -218,6 +218,10 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
       };
     },
 
+    async tabRename(tabId, label) {
+      // Best-effort tab-bar label; success is exit 0.
+      await execHerdr(["tab", "rename", tabId, label]);
+    },
     async paneRename(paneId, label) {
       // Best-effort sidebar label; success is exit 0 (output shape is not
       // relied upon so this stays compatible across herdr versions).
@@ -273,6 +277,12 @@ export function createHerdrClient(opts?: { exec?: ExecFn; bin?: string }): Herdr
       // success (verified live against herdr 0.7.1) — only demand exit 0;
       // failures still surface via the error envelope + nonzero exit.
       await execHerdr(["pane", "send-keys", paneId, ...keys]);
+    },
+
+    async agentPrompt(paneId, text) {
+      // Writes text + Enter as one ordered submission, including while the
+      // child's turn is active — this is the actual steer primitive.
+      await execHerdr(["agent", "prompt", paneId, text]);
     },
 
     async ping() {
