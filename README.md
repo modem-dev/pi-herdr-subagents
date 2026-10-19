@@ -223,6 +223,10 @@ runtime fallback; `/subagents-init` explicitly copies them into one of these use
 locations. A `subagent_done` / `caller_ping` child extension is loaded into every child for the
 completion handshake.
 
+Specify models — the `model:` frontmatter field and the `subagent` tool's `model` parameter — in
+the provider/id form, e.g. `anthropic/claude-opus-5-5`. A bare id combined with the agent's
+`thinking` level is fuzzy-matched by pi and can resolve to an unconfigured provider.
+
 ## Lifecycle: every child ends in exactly one honest state
 
 The watcher classifies each child from socket events + sidecar files. There is **no path to an

@@ -410,7 +410,12 @@ const SubagentParams = Type.Object({
   systemPrompt: Type.Optional(
     Type.String({ description: "Appended to system prompt (role instructions)" }),
   ),
-  model: Type.Optional(Type.String({ description: "Model override (overrides agent default)" })),
+  model: Type.Optional(
+    Type.String({
+      description:
+        "Model override (overrides agent default). Use the provider/id form, e.g. 'anthropic/claude-opus-5-5'. A bare id combined with the agent's thinking level is fuzzy-matched by pi and can resolve to an unconfigured provider.",
+    }),
+  ),
   skills: Type.Optional(
     Type.String({ description: "Comma-separated skills (overrides agent default)" }),
   ),

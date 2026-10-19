@@ -28,6 +28,11 @@ export interface SubagentSpawnParams {
 }
 
 export interface AgentDefaults {
+  /**
+   * Frontmatter `model:`. Use the provider/id form, e.g. `anthropic/claude-opus-5-5`. A bare id
+   * combined with the agent's thinking level is fuzzy-matched by pi and can resolve to an
+   * unconfigured provider.
+   */
   model?: string;
   tools?: string;
   skills?: string;
