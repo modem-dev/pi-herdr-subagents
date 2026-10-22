@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
+  normalizeSummary,
   parseDeniedTools,
   shouldAutoExitOnAgentEnd,
   shouldMarkUserTookOver,
@@ -119,6 +120,21 @@ describe("subagent-done: .exit sidecar shapes (cross-extension contract)", () =>
     assert.equal(readFileSync(`${sessionFile}.exit`, "utf8"), '{"type":"done"}');
   });
 
+  it("done with a summary carries it after type (older watchers ignore the extra key)", () => {
+    const sessionFile = makeSessionFile();
+    writeExitSidecar(sessionFile, { type: "done", summary: "  Shipped PR #1.\n" });
+    assert.equal(
+      readFileSync(`${sessionFile}.exit`, "utf8"),
+      '{"type":"done","summary":"Shipped PR #1."}',
+    );
+  });
+
+  it("done with a blank summary degrades to the exact reference shape", () => {
+    const sessionFile = makeSessionFile();
+    writeExitSidecar(sessionFile, { type: "done", summary: "   " });
+    assert.equal(readFileSync(`${sessionFile}.exit`, "utf8"), '{"type":"done"}');
+  });
+
   it("ping writes type/name/message in reference byte order", () => {
     const sessionFile = makeSessionFile();
     writeExitSidecar(sessionFile, { type: "ping", name: "Worker", message: "need input" });
@@ -157,6 +173,16 @@ describe("subagent-done: module", () => {
   it("loads standalone and exports a default extension factory", async () => {
     const mod = await import("../subagent-done.ts");
     assert.equal(typeof mod.default, "function");
+  });
+});
+
+describe("subagent-done: normalizeSummary", () => {
+  it("trims and drops blank or non-string values", () => {
+    assert.equal(normalizeSummary("  report  "), "report");
+    assert.equal(normalizeSummary(""), undefined);
+    assert.equal(normalizeSummary("\n\t"), undefined);
+    assert.equal(normalizeSummary(undefined), undefined);
+    assert.equal(normalizeSummary(42), undefined);
   });
 });
 
@@ -246,11 +272,25 @@ describe("subagent-done: subagent_done tool writes sidecar and shuts down", () =
     mod.default(fakePi as any);
 
     assert.ok(registeredTools.subagent_done, "subagent_done tool should be registered");
-    await registeredTools.subagent_done.execute("call-1", {}, null, () => {}, fakeCtx);
+    assert.ok(
+      registeredTools.subagent_done.parameters?.properties?.summary,
+      "tool schema exposes the summary argument",
+    );
+    await registeredTools.subagent_done.execute(
+      "call-1",
+      { summary: "Verdict: HEALTHY. 98/98 writes returned 200." },
+      null,
+      () => {},
+      fakeCtx,
+    );
 
     assert.equal(shutdownCalled, true, "should have called shutdown");
     const sidecar = readFileSync(`${sessionFile}.exit`, "utf8");
-    assert.equal(sidecar, '{"type":"done"}', "should write done sidecar");
+    assert.equal(
+      sidecar,
+      '{"type":"done","summary":"Verdict: HEALTHY. 98/98 writes returned 200."}',
+      "should write done sidecar carrying the handoff summary",
+    );
     assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.context-usage`, "utf8")), {
       version: 1,
       subagentId: "child-1",

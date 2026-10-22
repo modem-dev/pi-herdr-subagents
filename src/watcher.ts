@@ -12,8 +12,10 @@
 //       check; a watched-but-missing pane exited during the gap.
 //
 // Semantic sidecars (written by the child / wrapper script):
-//   <sessionFile>.exit     — {"type":"done"} or {"type":"ping","name","message"}
+//   <sessionFile>.exit     — {"type":"done"[,"summary"]} or {"type":"ping","name","message"}
 //                            written by subagent-done.ts before the child exits.
+//                            A `summary` is the child's explicit handoff and
+//                            wins over the transcript (see SummarySource).
 //   <sessionFile>.exitcode — process exit code, written by the wrapper script
 //                            (pane.exited carries no exit code — verified).
 //
@@ -44,8 +46,17 @@ export interface RunningSubagent {
   abortController?: AbortController;
 }
 
+/**
+ * Where a `completed` summary came from:
+ *   "sidecar"    — the child passed it to `subagent_done`; authoritative, and
+ *                  immune to transcript timing (see subagent-done.ts header).
+ *   "transcript" — fallback: last assistant text block on disk at settle time.
+ *                  Used for auto-exit children and pre-summary child extensions.
+ */
+export type SummarySource = "sidecar" | "transcript";
+
 export type SubagentOutcome =
-  | { kind: "completed"; summary: string; exitCode: 0 }
+  | { kind: "completed"; summary: string; exitCode: 0; summarySource: SummarySource }
   | { kind: "completed-user-exit"; summary: string; exitCode: 0 } // no .exit sidecar
   | { kind: "ping"; name: string; message: string }
   | { kind: "launch-failed"; exitCode: number; heldOpen: boolean; paneOutput: string | null }
@@ -165,7 +176,12 @@ export function watchSubagent(
       });
     }
 
-    function readExitSidecar(): { type?: string; name?: string; message?: string } | null {
+    function readExitSidecar(): {
+      type?: string;
+      name?: string;
+      message?: string;
+      summary?: string;
+    } | null {
       try {
         return JSON.parse(readFileSync(exitFile, "utf8"));
       } catch {
@@ -206,10 +222,21 @@ export function watchSubagent(
         };
       }
       if (exitData?.type === "done") {
+        const sidecarSummary =
+          typeof exitData.summary === "string" ? exitData.summary.trim() : "";
+        if (sidecarSummary !== "") {
+          return {
+            kind: "completed",
+            summary: sidecarSummary,
+            exitCode: 0,
+            summarySource: "sidecar",
+          };
+        }
         return {
           kind: "completed",
           summary: readSummary() ?? "Sub-agent exited without output",
           exitCode: 0,
+          summarySource: "transcript",
         };
       }
 

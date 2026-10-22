@@ -457,7 +457,7 @@ describe("index: subagent tool", () => {
       }),
       watch: async (_running: any, deps: any): Promise<SubagentOutcome> => {
         watchedStream = deps.stream;
-        return { kind: "completed", summary: "did the thing", exitCode: 0 };
+        return { kind: "completed", summary: "did the thing", exitCode: 0, summarySource: "transcript" };
       },
       createStream: () => fakeStream as any,
     });
@@ -507,6 +507,7 @@ describe("index: subagent tool", () => {
           kind: "completed",
           summary: "did the thing",
           exitCode: 0,
+          summarySource: "transcript",
         };
       },
       createStream: () => makeFakeStream() as any,
@@ -561,7 +562,7 @@ describe("index: subagent tool", () => {
             percent: 90,
           }),
         );
-        return { kind: "completed", summary: "done", exitCode: 0 };
+        return { kind: "completed", summary: "done", exitCode: 0, summarySource: "transcript" };
       },
       createStream: () => makeFakeStream() as any,
     });
@@ -591,7 +592,7 @@ describe("index: subagent tool", () => {
     await tool.execute("t1", { name: "Worker", task: "do it" }, undefined, undefined, fx.ctx);
     assert.equal(getActiveSubagentCount(), 1);
 
-    settle({ kind: "completed", summary: "done", exitCode: 0 });
+    settle({ kind: "completed", summary: "done", exitCode: 0, summarySource: "transcript" });
     await waitFor(() => __test__.runningSubagents.size === 0);
     assert.equal(getActiveSubagentCount(), 0);
   });

@@ -694,7 +694,9 @@ function safeGetNewEntries(sessionFile: string, afterLine: number) {
 /**
  * Re-scope a resumed subagent's outcome summary to entries added AFTER the
  * resume launch (ported reference behavior): the pre-existing conversation
- * must not masquerade as new output. Launch failures and pings pass through
+ * must not masquerade as new output. A summary the child handed over
+ * explicitly via `subagent_done` is already scoped to this run and is kept
+ * as-is. Launch failures and pings pass through
  * untouched — their payloads are already truthful.
  */
 function resolveResumeOutcome(
@@ -707,6 +709,8 @@ function resolveResumeOutcome(
 
   switch (outcome.kind) {
     case "completed":
+      if (outcome.summarySource === "sidecar") return outcome;
+      return { ...outcome, summary: newSummary() ?? "Resumed session exited without new output" };
     case "completed-user-exit":
       return { ...outcome, summary: newSummary() ?? "Resumed session exited without new output" };
     case "crashed":

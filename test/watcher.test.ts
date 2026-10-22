@@ -153,9 +153,58 @@ describe("watcher: lifecycle classification matrix", () => {
     fakeStream.fire(running.paneId, "pane_exited");
     const outcome = await promise;
 
-    assert.deepEqual(outcome, { kind: "completed", summary: "All done!", exitCode: 0 });
+    assert.deepEqual(outcome, {
+      kind: "completed",
+      summary: "All done!",
+      exitCode: 0,
+      summarySource: "transcript",
+    });
     assert.ok(!existsSync(`${running.sessionFile}.exit`), "exit sidecar consumed");
     assert.ok(!existsSync(`${running.sessionFile}.exitcode`), "exitcode sidecar consumed");
+  });
+
+  it("done sidecar with summary → completed with the sidecar summary, not the transcript", async () => {
+    const running = makeRunning();
+    // Transcript's last text is an interstitial — the real report was handed over.
+    writeSession(running.sessionFile, "All evidence is in. Writing the final report.");
+    writeFileSync(
+      `${running.sessionFile}.exit`,
+      JSON.stringify({ type: "done", summary: "Verdict: FIX CONFIRMED (n=111)." }),
+    );
+    writeFileSync(`${running.sessionFile}.exitcode`, "0\n");
+    const fakeStream = makeFakeStream();
+    const fakeClient = makeFakeClient();
+
+    const promise = watch(running, { stream: fakeStream.stream, client: fakeClient.client });
+    fakeStream.fire(running.paneId, "pane_exited");
+    const outcome = await promise;
+
+    assert.deepEqual(outcome, {
+      kind: "completed",
+      summary: "Verdict: FIX CONFIRMED (n=111).",
+      exitCode: 0,
+      summarySource: "sidecar",
+    });
+  });
+
+  it("done sidecar with a blank summary falls back to the transcript", async () => {
+    const running = makeRunning();
+    writeSession(running.sessionFile, "Transcript text.");
+    writeFileSync(`${running.sessionFile}.exit`, JSON.stringify({ type: "done", summary: "  " }));
+    writeFileSync(`${running.sessionFile}.exitcode`, "0\n");
+    const fakeStream = makeFakeStream();
+    const fakeClient = makeFakeClient();
+
+    const promise = watch(running, { stream: fakeStream.stream, client: fakeClient.client });
+    fakeStream.fire(running.paneId, "pane_exited");
+    const outcome = await promise;
+
+    assert.deepEqual(outcome, {
+      kind: "completed",
+      summary: "Transcript text.",
+      exitCode: 0,
+      summarySource: "transcript",
+    });
   });
 
   it("ping sidecar → ping", async () => {
@@ -293,6 +342,7 @@ describe("watcher: lifecycle classification matrix", () => {
       kind: "completed",
       summary: "Fresh answer after resume.",
       exitCode: 0,
+      summarySource: "transcript",
     });
   });
 
@@ -423,7 +473,12 @@ describe("watcher: lifecycle classification matrix", () => {
     fakeStream.reconcile();
     const outcome = await promise;
 
-    assert.deepEqual(outcome, { kind: "completed", summary: "Finished during the gap.", exitCode: 0 });
+    assert.deepEqual(outcome, {
+      kind: "completed",
+      summary: "Finished during the gap.",
+      exitCode: 0,
+      summarySource: "transcript",
+    });
   });
 
   it("reconcile: pane still present → keeps watching", async () => {

@@ -405,7 +405,7 @@ describe("index tools: subagent_resume", () => {
       watch: async (): Promise<SubagentOutcome> => {
         // the resumed child writes new entries, then completes
         appendAssistantEntry(sessionPath, "new summary");
-        return { kind: "completed", summary: "old summary", exitCode: 0 };
+        return { kind: "completed", summary: "old summary", exitCode: 0, summarySource: "transcript" };
       },
       createStream: () => makeFakeStream() as any,
     });
@@ -438,6 +438,33 @@ describe("index tools: subagent_resume", () => {
     assert.deepEqual(options, { triggerTurn: true, deliverAs: "steer" });
   });
 
+  it("keeps a sidecar summary on resume even when no new text entries exist", async () => {
+    const fake = registerAll();
+    const fx = makeFixture();
+    const sessionPath = join(fx.root, "child.jsonl");
+    writeChildSession(sessionPath, "old summary");
+
+    __test__.setDeps({
+      client: makeFakeClient(),
+      watch: async (): Promise<SubagentOutcome> => ({
+        kind: "completed",
+        summary: "Explicit handoff from subagent_done.",
+        exitCode: 0,
+        summarySource: "sidecar",
+      }),
+      createStream: () => makeFakeStream() as any,
+    });
+
+    const tool = fake.findTool("subagent_resume");
+    await tool.execute("t1", { sessionPath }, undefined, undefined, fx.ctx);
+
+    await waitFor(() => fake.sent.length === 1);
+    const content = fake.sent[0].message.content;
+    assert.match(content, /Explicit handoff from subagent_done\./);
+    assert.ok(!content.includes("without new output"));
+    assert.ok(!content.includes("old summary"));
+  });
+
   it("reports 'no new output' when the resumed session gained no entries", async () => {
     const fake = registerAll();
     const fx = makeFixture();
@@ -450,6 +477,7 @@ describe("index tools: subagent_resume", () => {
         kind: "completed",
         summary: "old summary",
         exitCode: 0,
+        summarySource: "transcript",
       }),
       createStream: () => makeFakeStream() as any,
     });

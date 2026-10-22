@@ -234,7 +234,7 @@ eternal "stalled" zombie** — every row below terminates the running entry with
 
 | What happened | Steer you get |
 |---|---|
-| child called `subagent_done` | `completed` + summary (last assistant message) |
+| child called `subagent_done` | `completed` + the `summary` argument the child passed (falls back to the last assistant text block if absent) |
 | child called `caller_ping` | `subagent_ping` + the child's question + session path |
 | user drove the child and quit pi without `subagent_done` | distinct honest phrasing: *"closed by user, no subagent_done"* + last message + session path |
 | child exited nonzero within the startup window (e.g. bad `--model`) | `failed to launch (exit code N)` + captured pane tail + pane id + launch script path; pane held open for post-mortem |
@@ -275,7 +275,10 @@ artifacts/<session-id>/
 Next to each child session file (`…/sessions/<encoded-cwd>/<ts>_<id>.jsonl`):
 
 - `<session>.exit` — semantic completion sidecar written by the child
-  (`{"type":"done"}` or `{"type":"ping",…}`)
+  (`{"type":"done","summary":"…"}`, bare `{"type":"done"}` on auto-exit, or `{"type":"ping",…}`).
+  The `summary` is the child's explicit handoff; it is preferred over reading the transcript,
+  which is racy (the child's final prose often lands after the sidecar) and lossy (thinking
+  blocks are not text).
 - `<session>.exitcode` — process exit code written by the wrapper script
 
 Useful tricks:

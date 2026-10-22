@@ -33,7 +33,7 @@ function build(outcome: SubagentOutcome, running = makeRunning()) {
 
 describe("buildOutcomeMessage", () => {
   it("completed → 'Sub-agent X completed' + summary + Session/Resume block", () => {
-    const msg = build({ kind: "completed", summary: "Shipped the feature.", exitCode: 0 });
+    const msg = build({ kind: "completed", summary: "Shipped the feature.", exitCode: 0, summarySource: "transcript" });
     assert.ok(msg);
     assert.equal(msg.customType, "subagent_result");
     assert.equal(msg.display, true);
@@ -63,7 +63,7 @@ describe("buildOutcomeMessage", () => {
     };
     const msg = buildOutcomeMessage(
       running,
-      { kind: "completed", summary: "Shipped.", exitCode: 0 },
+      { kind: "completed", summary: "Shipped.", exitCode: 0, summarySource: "transcript" },
       { now: () => running.startTime + 65_000, contextUsage },
     );
 
@@ -94,7 +94,7 @@ describe("buildOutcomeMessage", () => {
     };
     const msg = buildOutcomeMessage(
       running,
-      { kind: "completed", summary: "Shipped.", exitCode: 0 },
+      { kind: "completed", summary: "Shipped.", exitCode: 0, summarySource: "transcript" },
       { contextUsage },
     );
 
@@ -270,6 +270,7 @@ describe("message renderers", () => {
         kind: "completed",
         summary: ["l1", "l2", "l3", "l4", "l5", "l6", "l7"].join("\n"),
         exitCode: 0,
+        summarySource: "transcript",
       },
       { now: () => running.startTime + 5000 },
     )!;
@@ -303,7 +304,7 @@ describe("message renderers", () => {
   });
 
   it("subagent_result expanded shows full summary and session block exactly once near the top", () => {
-    const msg = build({ kind: "completed", summary: "line-a\nline-b", exitCode: 0 })!;
+    const msg = build({ kind: "completed", summary: "line-a\nline-b", exitCode: 0, summarySource: "transcript" })!;
     const rendered = renderSubagentResult(msg as any, { expanded: true } as any, createTheme() as any);
     assert.ok(rendered);
     const output = rendered.render(80).join("\n");

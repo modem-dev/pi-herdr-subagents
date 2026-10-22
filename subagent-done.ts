@@ -11,7 +11,18 @@
  *
  * The `.exit` sidecar written here is a cross-extension contract: the
  * orchestrator's watcher (src/watcher.ts) classifies completion from exactly
- * these shapes — {"type":"done"} and {"type":"ping","name":...,"message":...}.
+ * these shapes — {"type":"done"}, {"type":"done","summary":...} and
+ * {"type":"ping","name":...,"message":...}.
+ *
+ * The `summary` field is the handoff payload. Reading the child's transcript
+ * for "the last assistant text" at sidecar time is racy and lossy: models with
+ * extended thinking routinely compose the wrap-up in a thinking block, call
+ * `subagent_done` in the same message with no text, and only then emit the
+ * final prose — after the watcher has already resolved. Carrying the summary
+ * in the sidecar makes the handoff explicit and independent of transcript
+ * timing. Watchers that predate the field ignore it and fall back to the
+ * transcript, so the two halves may be upgraded independently.
+ *
  * Keep this file dependency-light: it loads into EVERY child.
  */
 import type { ContextUsage, ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -69,20 +80,36 @@ export function parseDeniedTools(rawValue: string | undefined): string[] {
 }
 
 export type ExitSidecarData =
-  | { type: "done" }
+  | { type: "done"; summary?: string }
   | { type: "ping"; name: string; message: string };
 
 /**
+ * Normalize a model-supplied summary: trimmed, or undefined when blank so an
+ * empty argument degrades to the transcript fallback instead of delivering "".
+ */
+export function normalizeSummary(summary: unknown): string | undefined {
+  if (typeof summary !== "string") return undefined;
+  const trimmed = summary.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+/**
  * Write the completion sidecar the orchestrator's watcher classifies from.
- * Byte-shape must match pi-interactive-subagents exactly (key order included):
+ * Byte-shape must match pi-interactive-subagents exactly (key order included)
+ * when no summary is carried, so older watchers keep classifying correctly:
  *   {"type":"done"}
+ *   {"type":"done","summary":"..."}
  *   {"type":"ping","name":"...","message":"..."}
  */
 export function writeExitSidecar(sessionFile: string, data: ExitSidecarData): void {
-  const payload =
-    data.type === "done"
-      ? { type: "done" as const }
-      : { type: "ping" as const, name: data.name, message: data.message };
+  let payload: Record<string, string>;
+  if (data.type === "done") {
+    payload = { type: "done" };
+    const summary = normalizeSummary(data.summary);
+    if (summary !== undefined) payload.summary = summary;
+  } else {
+    payload = { type: "ping", name: data.name, message: data.message };
+  }
   writeFileSync(`${sessionFile}.exit`, JSON.stringify(payload));
 }
 
@@ -288,14 +315,23 @@ export default function (pi: ExtensionAPI) {
     label: "Subagent Done",
     description:
       "Call this tool when you have completed your task. " +
-      "It will close this session and return your results to the main session. " +
-      "Your LAST assistant message before calling this becomes the summary returned to the caller.",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      "It closes this session and delivers `summary` to the caller as your result. " +
+      "The caller does NOT see your conversation, thinking, or files you wrote — " +
+      "`summary` is the entire handoff, so put the full report in it " +
+      "(verdict, what you did, key findings, paths to any artifacts). " +
+      "Do not announce the report in a separate message; pass it here.",
+    parameters: Type.Object({
+      summary: Type.String({
+        description:
+          "Your complete final report for the caller, in markdown. " +
+          "This is the only thing the caller receives.",
+      }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionFile = process.env.PI_SUBAGENT_SESSION;
       if (sessionFile) {
         snapshotContextUsage(ctx);
-        signalTerminalSidecar({ type: "done" });
+        signalTerminalSidecar({ type: "done", summary: normalizeSummary(params?.summary) });
       }
       ctx.shutdown();
       return {
