@@ -349,8 +349,9 @@ describe("launch plan: task delivery", () => {
     const task = p.files.find((f) => f.path === p.taskArtifactFile);
     assert.ok(task);
     assert.ok(task.content.includes("Fix the bug"));
-    assert.ok(task.content.includes("Complete your task autonomously."));
-    assert.ok(task.content.includes("Your FINAL assistant message"));
+    assert.ok(task.content.includes("Complete your task autonomously. When finished, call the subagent_done tool."));
+    assert.ok(task.content.includes("`summary` argument of subagent_done"));
+    assert.ok(!task.content.includes("FINAL assistant message"), "handoff is the tool argument, not the last message");
     assert.match(p.taskArtifactFile!, /context\/worker-.*\.md$/);
   });
 
@@ -366,6 +367,8 @@ describe("launch plan: task delivery", () => {
     const p = plan(fx, {}, { autoExit: false });
     const task = p.files.find((f) => f.path === p.taskArtifactFile);
     assert.ok(task?.content.includes("call the subagent_done tool"));
+    assert.ok(task?.content.includes("`summary` argument of subagent_done"));
+    assert.ok(task?.content.includes("If the user closes the session instead"));
   });
 });
 

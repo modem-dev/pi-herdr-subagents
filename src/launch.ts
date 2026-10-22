@@ -346,12 +346,18 @@ export function buildLaunchPlan(
     : null;
 
   // ── Task message (wrapper instructions only for blank-session modes) ──
+  // The handoff is the `summary` argument of subagent_done, not the last
+  // assistant message: the sidecar is written before the model's trailing
+  // prose lands, and thinking blocks are not text (see subagent-done.ts).
   const modeHint = autoExit
-    ? "Complete your task autonomously."
+    ? "Complete your task autonomously. When finished, call the subagent_done tool."
     : "Complete your task. When finished, call the subagent_done tool. The user can interact with you at any time.";
-  const summaryInstruction = autoExit
-    ? "Your FINAL assistant message should summarize what you accomplished."
-    : "Your FINAL assistant message (before calling subagent_done or before the user exits) should summarize what you accomplished.";
+  const summaryInstruction =
+    "Hand off your results by passing your complete final report as the `summary` argument of subagent_done. " +
+    "The caller receives ONLY that argument \u2014 not your messages, thinking, or files you wrote \u2014 " +
+    "so include the verdict, what you did, key findings, and paths to any artifacts. " +
+    "Do not put the report in a separate message before or after the call." +
+    (autoExit ? "" : " If the user closes the session instead, your last assistant message is used.");
   const identity = agentDefs?.body ?? params.systemPrompt ?? null;
   const systemPromptMode = agentDefs?.systemPromptMode;
   const identityInSystemPrompt = Boolean(systemPromptMode && identity);
